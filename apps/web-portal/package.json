@@ -4,24 +4,34 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:fast": "next dev --turbo",
     "build": "next build",
+    "build:analyze": "ANALYZE=true next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "perf:check": "node scripts/optimize-performance.js"
   },
   "dependencies": {
-    "@next/font": "^14.2.15",
+    "@hookform/resolvers": "^3.3.4",
     "@radix-ui/react-icons": "^1.3.2",
+    "@radix-ui/react-label": "^2.1.7",
+    "@radix-ui/react-separator": "^1.1.7",
     "@radix-ui/react-slot": "^1.2.3",
+    "@radix-ui/react-switch": "^1.1.7",
+    "@supabase/ssr": "^0.6.1",
     "@supabase/supabase-js": "^2.49.7",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^12.12.1",
     "lucide-react": "^0.511.0",
     "next": "^14.0.4",
+    "next-safe-action": "^7.9.8",
     "react": "^18",
     "react-dom": "^18",
+    "react-hook-form": "^7.53.2",
     "tailwind-merge": "^3.3.0",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@shadcn/ui": "^0.0.4",

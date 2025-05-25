@@ -28,6 +28,8 @@ module.exports = {
           700: '#2c4bcc',
           800: '#2440a8',
           900: '#1e3a8a',
+          DEFAULT: "hsl(var(--primary))",
+          foreground: "hsl(var(--primary-foreground))",
         },
         gray: {
           50: '#f9fafb',
