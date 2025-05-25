@@ -5,6 +5,7 @@ import Link from "next/link"
 import { Menu, X, ChevronDown } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { Button } from "@/components/ui/button"
+import { InteractiveButton } from "@/components/ui/interactive-button"
 
 const Header = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -15,16 +16,16 @@ const Header = () => {
 
   const menuVariants = {
     hidden: { opacity: 0, y: -20 },
-    visible: { 
-      opacity: 1, 
+    visible: {
+      opacity: 1,
       y: 0,
       transition: {
         duration: 0.2,
         staggerChildren: 0.1
       }
     },
-    exit: { 
-      opacity: 0, 
+    exit: {
+      opacity: 0,
       y: -20,
       transition: {
         duration: 0.2
@@ -42,21 +43,21 @@ const Header = () => {
     <header className="w-full bg-white dark:bg-gray-900 shadow-sm">
       <div className="container mx-auto px-4 py-4 flex justify-between items-center">
         <Link href="/" className="flex items-center space-x-2">
-          <span className="text-2xl font-bold text-primary-500">Closezly</span>
+          <span className="text-2xl font-bold text-primary">Closezly</span>
         </Link>
 
         {/* Desktop Navigation */}
         <nav className="hidden md:flex items-center space-x-8">
-          <Link href="/features" className="text-gray-700 dark:text-gray-300 hover:text-primary-500 dark:hover:text-primary-400 transition-colors">
+          <Link href="/features" className="text-gray-700 dark:text-gray-300 hover:text-primary dark:hover:text-primary transition-colors">
             Features
           </Link>
-          <Link href="/pricing" className="text-gray-700 dark:text-gray-300 hover:text-primary-500 dark:hover:text-primary-400 transition-colors">
+          <Link href="/pricing" className="text-gray-700 dark:text-gray-300 hover:text-primary dark:hover:text-primary transition-colors">
             Pricing
           </Link>
-          <Link href="/about" className="text-gray-700 dark:text-gray-300 hover:text-primary-500 dark:hover:text-primary-400 transition-colors">
+          <Link href="/about" className="text-gray-700 dark:text-gray-300 hover:text-primary dark:hover:text-primary transition-colors">
             About
           </Link>
-          <Link href="/contact" className="text-gray-700 dark:text-gray-300 hover:text-primary-500 dark:hover:text-primary-400 transition-colors">
+          <Link href="/contact" className="text-gray-700 dark:text-gray-300 hover:text-primary dark:hover:text-primary transition-colors">
             Contact
           </Link>
         </nav>
@@ -64,15 +65,15 @@ const Header = () => {
         {/* Auth Buttons */}
         <div className="hidden md:flex items-center space-x-4">
           <Link href="/login">
-            <Button variant="outline">Log in</Button>
+            <InteractiveButton variant="outline" effect="lift">Log in</InteractiveButton>
           </Link>
           <Link href="/signup">
-            <Button>Sign up</Button>
+            <InteractiveButton effect="shimmer">Sign up</InteractiveButton>
           </Link>
         </div>
 
         {/* Mobile Menu Button */}
-        <button 
+        <button
           className="md:hidden text-gray-700 dark:text-gray-300"
           onClick={toggleMenu}
           aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
@@ -84,7 +85,7 @@ const Header = () => {
       {/* Mobile Menu */}
       <AnimatePresence>
         {mobileMenuOpen && (
-          <motion.div 
+          <motion.div
             className="md:hidden bg-white dark:bg-gray-900 shadow-lg"
             initial="hidden"
             animate="visible"
@@ -93,36 +94,36 @@ const Header = () => {
           >
             <div className="container mx-auto px-4 py-4 flex flex-col space-y-4">
               <motion.div variants={itemVariants}>
-                <Link 
-                  href="/features" 
-                  className="block py-2 text-gray-700 dark:text-gray-300 hover:text-primary-500 dark:hover:text-primary-400"
+                <Link
+                  href="/features"
+                  className="block py-2 text-gray-700 dark:text-gray-300 hover:text-primary dark:hover:text-primary"
                   onClick={() => setMobileMenuOpen(false)}
                 >
                   Features
                 </Link>
               </motion.div>
               <motion.div variants={itemVariants}>
-                <Link 
-                  href="/pricing" 
-                  className="block py-2 text-gray-700 dark:text-gray-300 hover:text-primary-500 dark:hover:text-primary-400"
+                <Link
+                  href="/pricing"
+                  className="block py-2 text-gray-700 dark:text-gray-300 hover:text-primary dark:hover:text-primary"
                   onClick={() => setMobileMenuOpen(false)}
                 >
                   Pricing
                 </Link>
               </motion.div>
               <motion.div variants={itemVariants}>
-                <Link 
-                  href="/about" 
-                  className="block py-2 text-gray-700 dark:text-gray-300 hover:text-primary-500 dark:hover:text-primary-400"
+                <Link
+                  href="/about"
+                  className="block py-2 text-gray-700 dark:text-gray-300 hover:text-primary dark:hover:text-primary"
                   onClick={() => setMobileMenuOpen(false)}
                 >
                   About
                 </Link>
               </motion.div>
               <motion.div variants={itemVariants}>
-                <Link 
-                  href="/contact" 
-                  className="block py-2 text-gray-700 dark:text-gray-300 hover:text-primary-500 dark:hover:text-primary-400"
+                <Link
+                  href="/contact"
+                  className="block py-2 text-gray-700 dark:text-gray-300 hover:text-primary dark:hover:text-primary"
                   onClick={() => setMobileMenuOpen(false)}
                 >
                   Contact
