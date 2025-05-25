@@ -2,22 +2,31 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/src/supabaseClient'
+import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import Header from '@/components/layout/header'
-import Footer from '@/components/layout/footer'
-import { motion } from 'framer-motion'
-import { Download, BarChart, Clock, Settings } from 'lucide-react'
+// Removed framer-motion for better performance
+import { Download, Target, DollarSign, Users } from 'lucide-react'
+import { CallAnalyticsIcon } from '@/components/icons/ai-sales-icons'
+
+// Import new dashboard components
+import { SalesMetricsCard } from '@/components/dashboard/sales-metrics-card'
+import { AIInsights } from '@/components/dashboard/ai-insights'
+import { QuickWins } from '@/components/dashboard/quick-wins'
+import { ResponsiveContainer, ResponsiveGrid } from '@/components/ui/responsive-container'
 
 export default function DashboardPage() {
   const [user, setUser] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
   const [isFromDesktop, setIsFromDesktop] = useState(false)
   const [showDesktopAuth, setShowDesktopAuth] = useState(false)
+  const [isMounted, setIsMounted] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
+    const supabase = createClient()
+
+    setIsMounted(true)
+
     // Check if this page was accessed from desktop app
     if (typeof window !== 'undefined') {
       const urlParams = new URLSearchParams(window.location.search)
@@ -32,19 +41,8 @@ export default function DashboardPage() {
       try {
         const { data } = await supabase.auth.getSession()
         setUser(data.session?.user || null)
-
-        if (!data.session?.user) {
-          // If no user and from desktop, redirect to login with source parameter
-          if (isFromDesktop) {
-            router.push('/login?source=desktop')
-          } else {
-            router.push('/login')
-          }
-        }
       } catch (error) {
         console.error('Error checking auth status:', error)
-      } finally {
-        setLoading(false)
       }
     }
 
@@ -52,22 +50,15 @@ export default function DashboardPage() {
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user || null)
-      if (!session?.user) {
-        // If no user and from desktop, redirect to login with source parameter
-        if (isFromDesktop) {
-          router.push('/login?source=desktop')
-        } else {
-          router.push('/login')
-        }
-      }
     })
 
     return () => {
       listener.subscription.unsubscribe()
     }
-  }, [router, isFromDesktop])
+  }, [isMounted])
 
   async function handleLogout() {
+    const supabase = createClient()
     await supabase.auth.signOut()
   }
 
@@ -75,6 +66,7 @@ export default function DashboardPage() {
   const handleDesktopAuth = () => {
     if (!user) return
 
+    const supabase = createClient()
     // Get the current session to ensure we have fresh tokens
     supabase.auth.getSession().then(({ data }) => {
       if (data.session) {
@@ -93,6 +85,7 @@ export default function DashboardPage() {
 
   // Handle logout and login with different account
   const handleSwitchAccount = async () => {
+    const supabase = createClient()
     await supabase.auth.signOut()
     // After logout, the auth state change will redirect to login with source=desktop
   }
@@ -108,26 +101,12 @@ export default function DashboardPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
-      </div>
-    )
-  }
-
   return (
-    <div className="min-h-screen flex flex-col">
-      <Header />
+    <div className="p-6">{/* Removed the full page wrapper since layout handles it */}
 
       {/* Desktop App Authentication Banner */}
       {showDesktopAuth && (
-        <motion.div
-          initial={{ opacity: 0, y: -50 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
-          className="bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800"
-        >
+        <div className="bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800">
           <div className="container mx-auto px-4 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-3">
@@ -158,134 +137,91 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
-        </motion.div>
+        </div>
       )}
 
-      <main className="flex-grow py-8 bg-gray-50 dark:bg-gray-900">
-        <div className="container mx-auto px-4">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Dashboard</h1>
-              <p className="text-gray-600 dark:text-gray-300">Welcome back, {user?.email}</p>
-            </div>
-            <div className="mt-4 md:mt-0">
-              <Button onClick={handleLogout} variant="outline">Sign out</Button>
-            </div>
-          </div>
+      {/* Page Header */}
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+          Dashboard Overview
+        </h1>
+        <p className="text-gray-600 dark:text-gray-300 mt-2">
+          Welcome back, {user?.email}
+        </p>
+      </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3 }}
-            >
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium">Total Calls</CardTitle>
-                  <Clock className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">0</div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">No calls recorded yet</p>
-                </CardContent>
-              </Card>
-            </motion.div>
+      {/* Sales Metrics Cards */}
+      <ResponsiveGrid
+        cols={{ default: 1, sm: 2, lg: 4 }}
+        gap="lg"
+        className="mb-8"
+      >
+            <SalesMetricsCard
+              title="Total Calls This Week"
+              value="92"
+              subtitle="8 more than last week"
+              trend={{ value: 12.5, label: "vs last week", isPositive: true }}
+              icon={<CallAnalyticsIcon size={16} />}
+              delay={0}
+            />
 
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, delay: 0.1 }}
-            >
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium">Suggestions Used</CardTitle>
-                  <BarChart className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">0</div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">No suggestions used yet</p>
-                </CardContent>
-              </Card>
-            </motion.div>
+            <SalesMetricsCard
+              title="Conversion Rate"
+              value="74%"
+              subtitle="Above target of 70%"
+              trend={{ value: 5.2, label: "vs last month", isPositive: true }}
+              icon={<Target className="h-4 w-4" />}
+              delay={0.1}
+            />
 
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, delay: 0.2 }}
-            >
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium">Desktop App</CardTitle>
-                  <Download className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-                </CardHeader>
-                <CardContent>
-                  <Button variant="outline" size="sm" className="w-full">
-                    Download App
-                  </Button>
-                </CardContent>
-              </Card>
-            </motion.div>
-          </div>
+            <SalesMetricsCard
+              title="Revenue This Month"
+              value="$127K"
+              subtitle="Pipeline value: $770K"
+              trend={{ value: 18.3, label: "vs last month", isPositive: true }}
+              icon={<DollarSign className="h-4 w-4" />}
+              delay={0.2}
+            />
 
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: 0.3 }}
-          >
-            <Card className="mb-8">
-              <CardHeader>
-                <CardTitle>Getting Started</CardTitle>
-                <CardDescription>Complete these steps to set up your Closezly experience</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex items-start">
-                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900 flex items-center justify-center text-primary-600 dark:text-primary-300">
-                      1
-                    </div>
-                    <div className="ml-4">
-                      <h3 className="font-medium text-gray-900 dark:text-white">Download the desktop app</h3>
-                      <p className="text-gray-600 dark:text-gray-300">Install our desktop application to get real-time sales guidance during calls.</p>
-                    </div>
-                  </div>
+            <SalesMetricsCard
+              title="Active Prospects"
+              value="156"
+              subtitle="23 high-priority"
+              trend={{ value: 8.7, label: "vs last week", isPositive: true }}
+              icon={<Users className="h-4 w-4" />}
+              delay={0.3}
+            />
+      </ResponsiveGrid>
 
-                  <div className="flex items-start">
-                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900 flex items-center justify-center text-primary-600 dark:text-primary-300">
-                      2
-                    </div>
-                    <div className="ml-4">
-                      <h3 className="font-medium text-gray-900 dark:text-white">Connect your CRM</h3>
-                      <p className="text-gray-600 dark:text-gray-300">Link your CRM system to access customer data during calls.</p>
-                    </div>
-                  </div>
+      {/* Quick Wins Section */}
+      <div className="mb-8">
+        <QuickWins delay={0.4} />
+      </div>
 
-                  <div className="flex items-start">
-                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900 flex items-center justify-center text-primary-600 dark:text-primary-300">
-                      3
-                    </div>
-                    <div className="ml-4">
-                      <h3 className="font-medium text-gray-900 dark:text-white">Upload product information</h3>
-                      <p className="text-gray-600 dark:text-gray-300">Add your product details and sales materials for better AI suggestions.</p>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
+      {/* AI Insights */}
+      <div className="mb-8">
+        <AIInsights delay={1.0} />
+      </div>
 
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: 0.4 }}
-            className="text-center"
-          >
-            <p className="text-gray-600 dark:text-gray-300">
-              This dashboard is currently in development. More features coming soon!
+      {/* Desktop App Download */}
+      <div>
+        <Card>
+          <CardHeader className="text-center">
+            <CardTitle className="flex items-center justify-center space-x-2">
+              <Download className="h-5 w-5 text-primary" />
+              <span>Desktop App</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-center">
+            <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+              Get real-time AI guidance during your sales calls with our desktop application
             </p>
-          </motion.div>
-        </div>
-      </main>
-      <Footer />
+            <Button className="w-full md:w-auto">
+              Download Desktop App
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }
