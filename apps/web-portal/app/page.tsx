@@ -4,6 +4,7 @@ import Hero from "@/components/home/hero"
 import Features from "@/components/home/features"
 import Testimonials from "@/components/home/testimonials"
 import CTA from "@/components/home/cta"
+import { AIBenefitsSection } from "@/components/sections/ai-benefits-section"
 
 export default function Page() {
   return (
@@ -12,6 +13,7 @@ export default function Page() {
       <main className="flex-grow">
         <Hero />
         <Features />
+        <AIBenefitsSection />
         <Testimonials />
         <CTA />
       </main>
