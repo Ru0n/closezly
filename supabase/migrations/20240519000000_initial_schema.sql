@@ -2,8 +2,9 @@
 -- Based on the technical architecture document
 
 -- Create users table
+-- Note: id should match auth.users.id for OAuth users, so no default UUID generation
 CREATE TABLE IF NOT EXISTS public.users (
-    id UUID PRIMARY KEY DEFAULT extensions.uuid_generate_v4(),
+    id UUID PRIMARY KEY,
     email TEXT UNIQUE NOT NULL,
     full_name TEXT,
     company TEXT,
@@ -122,3 +123,10 @@ CREATE POLICY "Users can insert their own documents" ON public.documents
 
 CREATE POLICY "Users can update their own documents" ON public.documents
     FOR UPDATE USING (auth.uid() = user_id);
+
+-- Add INSERT policies to allow OAuth user creation via triggers
+CREATE POLICY "Allow user creation via trigger" ON public.users
+    FOR INSERT WITH CHECK (true);
+
+CREATE POLICY "Allow profile creation via trigger" ON public.user_profiles
+    FOR INSERT WITH CHECK (true);
