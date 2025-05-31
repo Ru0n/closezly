@@ -12,6 +12,7 @@ import AppState from './AppState'
 import AuthHelper from './AuthHelper'
 import ScreenshotHelper from './ScreenshotHelper'
 import AudioCaptureService from './AudioCaptureService'
+import PermissionHelper from './PermissionHelper'
 
 interface CallContext {
   currentTranscriptSegment?: string
@@ -115,13 +116,13 @@ class AIInteractionService extends EventEmitter {
       console.log('[AIInteraction] Handling objection:', objectionText)
 
       const context = await this.prepareContext(objectionText)
-      const screenshot = await this.captureScreenContext()
+      const screenContext = await this.captureScreenContext(false) // Don't show dialog for objection handling
 
       const request: AssistanceRequest = {
         context,
         assistanceType: 'objection',
         query: objectionText,
-        imageBase64: screenshot
+        imageBase64: screenContext.screenshot
       }
 
       return await this.makeAssistanceRequest(request)
