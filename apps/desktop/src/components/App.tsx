@@ -8,37 +8,11 @@ import Header from './Header';
 // import Suggestions from './Suggestions';
 // import AudioInputControl from './AudioInputControl';
 import RecordingFeedbackPopup from './RecordingFeedbackPopup';
+import PermissionDialog from './PermissionDialog';
+import PermissionStatus from './PermissionStatus';
+import '../utils/rendererAudioCapture'; // Initialize renderer audio capture
 
-// Define the ElectronAPI interface to match the API exposed in preload.ts
-declare global {
-  interface Window {
-    electronAPI: {
-      toggleVisibility: () => boolean;
-      setWindowPosition: (deltaX: number, deltaY: number) => { x: number; y: number };
-      positionAtTop: () => { x: number; y: number };
-      resizeWindow: (width: number, height: number) => { width: number; height: number };
-      takeScreenshotAndProcess: () => Promise<{ success: boolean; image?: string; error?: string }>;
-      processManualQuery: (queryText: string) => Promise<{
-        success: boolean;
-        suggestions?: any[];
-        error?: string;
-      }>;
-      getAuthStatus: () => Promise<{ isAuthenticated: boolean; user: any | null }>;
-      startCall: () => boolean;
-      endCall: () => boolean;
-      addTranscriptSegment: (
-        speaker: 'user' | 'customer',
-        text: string,
-        timestamp: string
-      ) => boolean;
-      getAppState: () => Promise<any>;
-      onStateUpdated: (callback: (state: any) => void) => () => void;
-      onTriggerAIQuery: (callback: () => void) => () => void;
-      onCallRecordingToggled: (callback: (isActive: boolean) => void) => () => void;
-      onVisibilityChangedByHotkey: (callback: (newVisibility: boolean) => void) => () => void;
-    };
-  }
-}
+// ElectronAPI interface is now defined in electron.d.ts
 
 // Define constants for window dimensions (should match main process)
 const APP_COMPACT_HEIGHT = 40; // Match COMPACT_WINDOW_HEIGHT in WindowHelper.ts
@@ -94,6 +68,11 @@ const App: React.FC = () => {
   // const [previousWindowHeight, setPreviousWindowHeight] = useState(APP_COMPACT_HEIGHT);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisStatusText, setAnalysisStatusText] = useState('');
+  const [queryInput, setQueryInput] = useState('');
+  const [showQueryInput, setShowQueryInput] = useState(false);
+  const [showPermissionDialog, setShowPermissionDialog] = useState(false);
+  const [isFirstLaunch, setIsFirstLaunch] = useState(false);
+  const [hasCheckedPermissions, setHasCheckedPermissions] = useState(false);
 
   // Determine if the body section should be visible (based on content)
   // This existing logic can determine *what* is in the body,
@@ -106,6 +85,9 @@ const App: React.FC = () => {
       try {
         const state = await window.electronAPI.getAppState();
         setAppState(state);
+
+        // Check if this is the first launch and permissions need to be set up
+        await checkInitialPermissions();
       } catch (error) {
         console.error('Error initializing app state:', error);
       }
@@ -185,6 +167,33 @@ const App: React.FC = () => {
     };
   }, [appState.activeCall.isActive]);
 
+  // Check initial permissions and determine if onboarding is needed
+  const checkInitialPermissions = async () => {
+    if (hasCheckedPermissions) return;
+
+    try {
+      const result = await window.electronAPI.checkAllPermissions();
+      if (result.success) {
+        const hasPermissionIssues = Object.values(result.results).some((p: any) => !p.granted);
+
+        // Check if this is likely a first launch (no permissions granted)
+        const allPermissionsNotDetermined = Object.values(result.results).every(
+          (p: any) => p.status === 'not-determined'
+        );
+
+        if (allPermissionsNotDetermined) {
+          setIsFirstLaunch(true);
+        }
+
+        // Don't show dialog immediately on startup, wait for user to try AI features
+        setHasCheckedPermissions(true);
+      }
+    } catch (error) {
+      console.error('Failed to check initial permissions:', error);
+      setHasCheckedPermissions(true);
+    }
+  };
+
   // Effect to resize window when body visibility changes
   useEffect(() => {
     console.log(`[App.tsx] isBodyAreaVisible changed to: ${isBodyAreaVisible}. Triggering resize.`);
@@ -205,9 +214,11 @@ const App: React.FC = () => {
   const handleTakeScreenshot = async () => {
     try {
       const result = await window.electronAPI.takeScreenshotAndProcess();
-      if (result.success && result.image) {
-        console.log('Screenshot taken successfully');
-        // In a real app, we would process this image with the LLM
+      if (result.success) {
+        console.log('Screenshot taken and processed successfully');
+        if (result.suggestions && result.suggestions.length > 0) {
+          console.log('AI suggestions received:', result.suggestions);
+        }
       } else {
         console.error('Failed to take screenshot:', result.error);
       }
@@ -216,17 +227,62 @@ const App: React.FC = () => {
     }
   };
 
-  // Handle Ask AI click - shows the body area
-  const handleAskAIClick = () => {
+  // Handle Ask AI click - shows the body area and triggers AI processing
+  const handleAskAIClick = async () => {
     console.log('[App.tsx] handleAskAIClick called');
-    setIsBodyAreaVisible(true);
-    // Ensure not in call mode when asking AI, or manage state accordingly
-    if (appState.activeCall.isActive) {
-      // Optionally stop the call or prevent Ask AI during a call
-      // For now, let's assume Ask AI takes precedence or they are mutually exclusive for simplicity
-      // window.electronAPI.endCall(); // Example if you want to stop call
+
+    // Check permissions first
+    try {
+      const permissionResult = await window.electronAPI.checkAllPermissions();
+      if (permissionResult.success) {
+        const hasPermissionIssues = Object.values(permissionResult.results).some((p: any) => !p.granted);
+
+        if (hasPermissionIssues) {
+          // Show permission dialog for first-time users or when permissions are missing
+          setShowPermissionDialog(true);
+          return;
+        }
+      }
+    } catch (error) {
+      console.error('Failed to check permissions before AI processing:', error);
     }
-    // setAppState(prev => ({ ...prev, isProcessing: true, currentQuery: "Waiting for your question..." }));
+
+    setIsBodyAreaVisible(true);
+    setIsAnalyzing(true);
+    setAnalysisStatusText("Analyzing screen context...");
+
+    try {
+      // Trigger screenshot and AI processing
+      const response = await window.electronAPI.takeScreenshotAndProcess();
+
+      if (response.success) {
+        setIsAnalyzing(false);
+        if (response.suggestions && response.suggestions.length > 0) {
+          // Display suggestions in a formatted way
+          const suggestionText = response.suggestions
+            .map((s: any, index: number) => `${index + 1}. ${s.text}`)
+            .join('\n\n');
+          setAnalysisStatusText(suggestionText);
+        } else if (response.response) {
+          setAnalysisStatusText(response.response);
+        } else {
+          setAnalysisStatusText("AI analysis complete. No specific suggestions at this time.");
+        }
+      } else {
+        setIsAnalyzing(false);
+        // Check if the error is permission-related
+        if (response.error && response.error.includes('permission')) {
+          setAnalysisStatusText(`Permission Error: ${response.error}`);
+          setShowPermissionDialog(true);
+        } else {
+          setAnalysisStatusText(`Error: ${response.error || 'Failed to process screenshot'}`);
+        }
+      }
+    } catch (error) {
+      console.error('[App.tsx] Error in handleAskAIClick:', error);
+      setIsAnalyzing(false);
+      setAnalysisStatusText('Error: Failed to connect to AI service');
+    }
   };
 
   // Handle Start Over - hides the body area and resets relevant state
@@ -241,21 +297,92 @@ const App: React.FC = () => {
       // activeCall: { ...prev.activeCall, isActive: false } // Optionally stop call on start over
     }));
     // window.electronAPI.endCall(); // Also stop call in main process if needed
+    setIsAnalyzing(false);
+    setAnalysisStatusText('');
+    setIsRecordingFeedbackVisible(false);
+    setShowQueryInput(false);
+    setQueryInput('');
   };
 
-  const handleToggleRecording = () => {
+  // Handle manual query submission
+  const handleQuerySubmit = async () => {
+    if (!queryInput.trim()) return;
+
+    setIsAnalyzing(true);
+    setAnalysisStatusText("Processing your question...");
+    setShowQueryInput(false);
+
+    try {
+      const response = await window.electronAPI.processManualQuery(queryInput.trim());
+
+      if (response.success) {
+        setIsAnalyzing(false);
+        if (response.suggestions && response.suggestions.length > 0) {
+          const suggestionText = response.suggestions
+            .map((s: any, index: number) => `${index + 1}. ${s.text}`)
+            .join('\n\n');
+          setAnalysisStatusText(`Response to "${queryInput}":\n\n${suggestionText}`);
+        } else if (response.response) {
+          setAnalysisStatusText(`Response to "${queryInput}":\n\n${response.response}`);
+        } else {
+          setAnalysisStatusText(`I've processed your question: "${queryInput}"\n\nNo specific suggestions available at this time.`);
+        }
+      } else {
+        setIsAnalyzing(false);
+        setAnalysisStatusText(`Error processing query: ${response.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('[App.tsx] Error processing manual query:', error);
+      setIsAnalyzing(false);
+      setAnalysisStatusText('Error: Failed to process your question');
+    }
+
+    setQueryInput('');
+  };
+
+  // Handle showing query input
+  const handleShowQueryInput = () => {
+    setIsBodyAreaVisible(true);
+    setShowQueryInput(true);
+    setAnalysisStatusText('');
+    setIsAnalyzing(false);
+  };
+
+  const handleToggleRecording = async () => {
     if (appState.activeCall.isActive) {
       // Stopping recording
       window.electronAPI.endCall(); // This should trigger onStateUpdated, which sets appState.activeCall.isActive to false
       setIsRecordingFeedbackVisible(false);
       setIsBodyAreaVisible(true); // Open the main analysis area
       setIsAnalyzing(true);
-      setAnalysisStatusText("Analyzing...");
-      // Simulate AI processing and then show response
-      setTimeout(() => {
+      setAnalysisStatusText("Analyzing conversation...");
+
+      try {
+        // Process the conversation with AI
+        const response = await window.electronAPI.takeScreenshotAndProcess();
+
+        if (response.success) {
+          setIsAnalyzing(false);
+          if (response.suggestions && response.suggestions.length > 0) {
+            // Display conversation analysis and suggestions
+            const suggestionText = response.suggestions
+              .map((s: any, index: number) => `${index + 1}. ${s.text}`)
+              .join('\n\n');
+            setAnalysisStatusText(`Conversation Analysis:\n\n${suggestionText}`);
+          } else if (response.response) {
+            setAnalysisStatusText(`Conversation Analysis:\n\n${response.response}`);
+          } else {
+            setAnalysisStatusText("Conversation recorded successfully. No specific insights at this time.");
+          }
+        } else {
+          setIsAnalyzing(false);
+          setAnalysisStatusText(`Analysis Error: ${response.error || 'Failed to analyze conversation'}`);
+        }
+      } catch (error) {
+        console.error('[App.tsx] Error analyzing conversation:', error);
         setIsAnalyzing(false);
-        setAnalysisStatusText("AI Response would appear here."); // Placeholder for actual AI response
-      }, 3000); // Simulate delay
+        setAnalysisStatusText('Error: Failed to analyze conversation');
+      }
     } else {
       // Starting recording
       window.electronAPI.startCall(); // This should trigger onStateUpdated, which sets appState.activeCall.isActive to true
@@ -294,6 +421,22 @@ const App: React.FC = () => {
   const handleSettingsOpenChange = (open: boolean) => {
     console.log(`[App.tsx] Settings popover ${open ? 'opened' : 'closed'}`);
     setIsSettingsOpen(open);
+  };
+
+  // Permission dialog handlers
+  const handlePermissionDialogClose = () => {
+    setShowPermissionDialog(false);
+  };
+
+  const handlePermissionGranted = () => {
+    console.log('[App.tsx] Permission granted, proceeding with AI processing');
+    setShowPermissionDialog(false);
+    // Retry the AI processing now that permissions are granted
+    handleAskAIClick();
+  };
+
+  const handleOpenPermissionDialog = () => {
+    setShowPermissionDialog(true);
   };
 
   // Determine what to show in the AI Response section based on state
@@ -374,7 +517,46 @@ const App: React.FC = () => {
               <span className="text-xs text-gray-400 italic">{statusMessage}</span>
             )}
           </div>
-          {isAnalyzing ? (
+          {showQueryInput ? (
+            <motion.div
+              className="space-y-3"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
+            >
+              <div className="flex flex-col space-y-2">
+                <label className="text-sm text-gray-300">Ask me anything about your sales conversation:</label>
+                <textarea
+                  value={queryInput}
+                  onChange={(e) => setQueryInput(e.target.value)}
+                  placeholder="e.g., How should I handle their price objection?"
+                  className="w-full p-3 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 resize-none focus:outline-none focus:border-blue-500"
+                  rows={3}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleQuerySubmit();
+                    }
+                  }}
+                />
+              </div>
+              <div className="flex space-x-2">
+                <button
+                  onClick={handleQuerySubmit}
+                  disabled={!queryInput.trim()}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors"
+                >
+                  Send
+                </button>
+                <button
+                  onClick={() => setShowQueryInput(false)}
+                  className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          ) : isAnalyzing ? (
             <motion.p
               className="text-white text-center text-lg animate-pulse"
               key="analyzing"
@@ -382,15 +564,25 @@ const App: React.FC = () => {
               {analysisStatusText}
             </motion.p>
           ) : (
-            <motion.p
-              className="text-white whitespace-pre-wrap" // Allow text to wrap and preserve newlines
-              key="response"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.1, duration: 0.3 }}
-            >
-              {analysisStatusText}
-            </motion.p>// This will show AI response or other content
+            <div className="space-y-3">
+              <motion.p
+                className="text-white whitespace-pre-wrap" // Allow text to wrap and preserve newlines
+                key="response"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.1, duration: 0.3 }}
+              >
+                {analysisStatusText || "Click 'Ask AI' to analyze your screen, or ask a specific question below."}
+              </motion.p>
+              {!analysisStatusText && (
+                <button
+                  onClick={handleShowQueryInput}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Ask a Question
+                </button>
+              )}
+            </div>
           )}
           {/* Future components like Question, Analysis, Suggestions will go here or be part of analysisStatusText logic */}
         </motion.div>
@@ -405,6 +597,29 @@ const App: React.FC = () => {
           <RecordingFeedbackPopup
             statusText={analysisStatusText}
           />
+        </div>
+      )}
+
+      {/* Permission Dialog */}
+      <PermissionDialog
+        isOpen={showPermissionDialog}
+        onClose={handlePermissionDialogClose}
+        onPermissionGranted={handlePermissionGranted}
+        requiredPermissions={['screen', 'microphone']}
+        showOnboarding={isFirstLaunch}
+      />
+
+      {/* Permission Status - Show in settings or when there are issues */}
+      {(isSettingsOpen || (hasCheckedPermissions && !showPermissionDialog)) && (
+        <div className="absolute top-12 right-4 z-30">
+          <div className="bg-black bg-opacity-75 backdrop-blur-lg rounded-lg p-3 shadow-xl">
+            <PermissionStatus
+              onOpenPermissionDialog={handleOpenPermissionDialog}
+              className="w-48"
+              showLabels={true}
+              compact={false}
+            />
+          </div>
         </div>
       )}
     </div>
