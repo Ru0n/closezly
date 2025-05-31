@@ -5,13 +5,14 @@
  * Handles application lifecycle, window creation, and IPC setup.
  */
 
-import { app, BrowserWindow, screen } from 'electron'
+import { app, BrowserWindow, screen, session, desktopCapturer } from 'electron'
 import path from 'path'
 import WindowHelper from './helpers/WindowHelper'
 import ShortcutsHelper from './helpers/ShortcutsHelper'
 import setupIpcHandlers from './helpers/ipcHandlers'
 import AppState from './helpers/AppState'
 import AuthHelper from './helpers/AuthHelper'
+import PermissionHelper from './helpers/PermissionHelper'
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling
 if (require('electron-squirrel-startup')) {
@@ -59,8 +60,103 @@ app.on('window-all-closed', () => {
 // Setup IPC handlers
 setupIpcHandlers()
 
+// Setup permission handlers for screen recording and microphone access
+function setupPermissionHandlers() {
+  // Set up permission request handler for media access
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+    console.log(`[Permissions] Permission request for: ${permission}`)
+
+    // Allow microphone access for audio capture
+    if (permission === 'microphone' as any) {
+      console.log('[Permissions] Granting microphone permission')
+      callback(true)
+      return
+    }
+
+    // Allow media access for screen recording
+    if (permission === 'media') {
+      console.log('[Permissions] Granting media permission')
+      callback(true)
+      return
+    }
+
+    // Deny other permissions by default
+    console.log(`[Permissions] Denying permission: ${permission}`)
+    callback(false)
+  })
+
+  // Set up display media request handler for screen capture
+  session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+    console.log('[Permissions] Display media request received')
+
+    // Get available screen sources
+    desktopCapturer.getSources({ types: ['screen', 'window'] }).then((sources) => {
+      console.log(`[Permissions] Found ${sources.length} screen sources`)
+
+      if (sources.length > 0) {
+        // Grant access to the first screen found (primary display)
+        const primaryScreen = sources.find(source =>
+          source.name === 'Entire Screen' ||
+          source.name === 'Screen 1' ||
+          source.id.includes('screen')
+        ) || sources[0]
+
+        console.log(`[Permissions] Granting access to screen: ${primaryScreen.name}`)
+        callback({ video: primaryScreen })
+      } else {
+        console.log('[Permissions] No screen sources available')
+        callback({})
+      }
+    }).catch((error) => {
+      console.error('[Permissions] Error getting screen sources:', error)
+      callback({})
+    })
+  })
+}
+
+// Check initial permissions on startup
+async function checkInitialPermissions() {
+  try {
+    console.log('[Main] Checking initial permissions...')
+
+    // Check screen recording permission
+    const screenPermission = await PermissionHelper.checkPermission('screen')
+    console.log(`[Main] Screen recording permission: ${screenPermission.status}`)
+
+    // Check microphone permission
+    const micPermission = await PermissionHelper.checkPermission('microphone')
+    console.log(`[Main] Microphone permission: ${micPermission.status}`)
+
+    // If screen recording is not granted, log a warning
+    if (screenPermission.status !== 'granted') {
+      console.warn('[Main] Screen recording permission not granted. AI screenshot functionality will be limited.')
+      console.warn('[Main] User guidance:', screenPermission.userGuidance)
+    }
+
+    // Listen for permission changes
+    PermissionHelper.on('permission-changed', (mediaType, status) => {
+      console.log(`[Main] Permission changed: ${mediaType} -> ${status}`)
+
+      // Notify renderer process about permission changes
+      const mainWindow = WindowHelper.getMainWindow()
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('closezly:permission-changed', { mediaType, status })
+      }
+    })
+
+  } catch (error) {
+    console.error('[Main] Error checking initial permissions:', error)
+  }
+}
+
 // Create the main window when Electron is ready
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Set up permission handlers before creating windows
+  setupPermissionHandlers()
+
+  // Check permissions on startup
+  await checkInitialPermissions()
+
   // Create the main window
   WindowHelper.createMainWindow()
 

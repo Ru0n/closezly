@@ -43,6 +43,26 @@ const electronAPI = {
   // App state
   getAppState: () => ipcRenderer.invoke('closezly:get-app-state'),
 
+  // Audio capture
+  startAudioCapture: () => ipcRenderer.invoke('closezly:start-audio-capture'),
+  stopAudioCapture: () => ipcRenderer.invoke('closezly:stop-audio-capture'),
+  getAudioStatus: () => ipcRenderer.invoke('closezly:get-audio-status'),
+
+  // AI interactions
+  handleObjection: (objectionText: string) => ipcRenderer.invoke('closezly:handle-objection', objectionText),
+  processMultimodalAssistance: (queryText?: string) => ipcRenderer.invoke('closezly:process-multimodal-assistance', queryText),
+  triggerMultimodalAssistance: () => ipcRenderer.invoke('closezly:trigger-multimodal-assistance'),
+  getAIStatus: () => ipcRenderer.invoke('closezly:get-ai-status'),
+
+  // Permission management
+  checkPermission: (mediaType: string) => ipcRenderer.invoke('closezly:check-permission', mediaType),
+  requestPermission: (mediaType: string) => ipcRenderer.invoke('closezly:request-permission', mediaType),
+  checkAllPermissions: () => ipcRenderer.invoke('closezly:check-all-permissions'),
+  showPermissionStatus: () => ipcRenderer.invoke('closezly:show-permission-status'),
+
+  // Audio chunk transmission
+  sendAudioChunk: (chunkData: any) => ipcRenderer.send('audio-chunk', chunkData),
+
   // Event listeners
   onStateUpdated: (callback: (state: any) => void) => {
     const listener = (_event: any, state: any) => callback(state)
@@ -74,6 +94,14 @@ const electronAPI = {
     return () => {
       ipcRenderer.removeListener('closezly:visibility-changed-by-hotkey', handler);
     };
+  },
+
+  onPermissionChanged: (callback: (data: { mediaType: string; status: string }) => void) => {
+    const listener = (_event: any, data: { mediaType: string; status: string }) => callback(data)
+    ipcRenderer.on('closezly:permission-changed', listener)
+    return () => {
+      ipcRenderer.removeListener('closezly:permission-changed', listener)
+    }
   },
 }
 

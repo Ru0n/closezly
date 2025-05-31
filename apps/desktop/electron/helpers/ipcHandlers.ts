@@ -10,6 +10,9 @@ import AppState from './AppState'
 import WindowHelper, { COMPACT_WINDOW_HEIGHT, EXPANDED_WINDOW_HEIGHT, WINDOW_WIDTH } from './WindowHelper'
 import ScreenshotHelper from './ScreenshotHelper'
 import AuthHelper from './AuthHelper'
+import AIInteractionService from './AIInteractionService'
+import AudioCaptureService from './AudioCaptureService'
+import PermissionHelper from './PermissionHelper'
 
 interface ManualQueryPayload {
   queryText: string
@@ -51,18 +54,27 @@ function setupIpcHandlers(): void {
       // Wait a moment for the window to hide
       await new Promise(resolve => setTimeout(resolve, 100))
 
-      // Capture the screen
-      const screenshotBase64 = await ScreenshotHelper.captureFullScreen()
-
       // Restore the overlay visibility
       if (wasVisible) {
         WindowHelper.setVisibility(true)
       }
 
-      // Optimize the image for LLM processing
-      const optimizedImage = await ScreenshotHelper.optimizeImageForLLM(screenshotBase64)
+      // Process screenshot with AI
+      console.log('[IPC] Processing screenshot with AI...')
+      const response = await AIInteractionService.processScreenshotContext()
 
-      return { success: true, image: optimizedImage }
+      if (response.success) {
+        return {
+          success: true,
+          suggestions: response.suggestions,
+          response: response.response
+        }
+      } else {
+        return {
+          success: false,
+          error: response.error || 'Failed to process screenshot'
+        }
+      }
     } catch (error) {
       console.error('Error taking screenshot:', error)
       return { success: false, error: (error as Error).message }
@@ -74,38 +86,25 @@ function setupIpcHandlers(): void {
     try {
       const { queryText } = payload
 
-      // Update the current query in AppState
-      AppState.setCurrentQuery(queryText)
+      console.log('[IPC] Processing manual query:', queryText)
 
-      // Set processing state
-      AppState.setProcessing(true)
+      // Process query with AI
+      const response = await AIInteractionService.processManualQuery(queryText)
 
-      // TODO: Implement actual query processing with backend API
-      // This is a placeholder for now
-      console.log('Processing manual query:', queryText)
-
-      // Simulate processing delay
-      await new Promise(resolve => setTimeout(resolve, 1000))
-
-      // Mock response for now
-      const mockSuggestions = [
-        {
-          id: '1',
-          text: `Response to query: "${queryText}"`,
-          type: 'information' as const
+      if (response.success) {
+        return {
+          success: true,
+          suggestions: response.suggestions,
+          response: response.response
         }
-      ]
-
-      // Update suggestions in AppState
-      AppState.setSuggestions(mockSuggestions)
-
-      // Reset processing state
-      AppState.setProcessing(false)
-
-      return { success: true, suggestions: mockSuggestions }
+      } else {
+        return {
+          success: false,
+          error: response.error || 'Failed to process query'
+        }
+      }
     } catch (error) {
-      console.error('Error processing manual query:', error)
-      AppState.setProcessing(false)
+      console.error('[IPC] Error processing manual query:', error)
       return { success: false, error: (error as Error).message }
     }
   })
@@ -185,15 +184,35 @@ function setupIpcHandlers(): void {
   })
 
   // Start call
-  ipcMain.on('closezly:start-call', (event) => {
-    AppState.startCall()
-    event.returnValue = true
+  ipcMain.on('closezly:start-call', async (event) => {
+    try {
+      AppState.startCall()
+
+      // Start audio capture for multimodal processing
+      const audioStarted = await AudioCaptureService.startCapture()
+      console.log(`[IPC] Call started - Audio capture: ${audioStarted ? 'enabled' : 'disabled'}`)
+
+      event.returnValue = true
+    } catch (error) {
+      console.error('[IPC] Error starting call:', error)
+      event.returnValue = false
+    }
   })
 
   // End call
-  ipcMain.on('closezly:end-call', (event) => {
-    AppState.endCall()
-    event.returnValue = true
+  ipcMain.on('closezly:end-call', async (event) => {
+    try {
+      AppState.endCall()
+
+      // Stop audio capture
+      await AudioCaptureService.stopCapture()
+      console.log('[IPC] Call ended - Audio capture stopped')
+
+      event.returnValue = true
+    } catch (error) {
+      console.error('[IPC] Error ending call:', error)
+      event.returnValue = false
+    }
   })
 
   // Get app state
@@ -207,6 +226,110 @@ function setupIpcHandlers(): void {
       currentSuggestions: AppState.getSuggestions(),
       crmContext: AppState.getCRMContext(),
       currentQuery: AppState.getCurrentQuery()
+    }
+  })
+
+  // Audio capture handlers
+  ipcMain.handle('closezly:start-audio-capture', async () => {
+    try {
+      const result = await AudioCaptureService.startCapture()
+      return { success: result }
+    } catch (error) {
+      console.error('[IPC] Error starting audio capture:', error)
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('closezly:stop-audio-capture', async () => {
+    try {
+      await AudioCaptureService.stopCapture()
+      return { success: true }
+    } catch (error) {
+      console.error('[IPC] Error stopping audio capture:', error)
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('closezly:get-audio-status', async () => {
+    return AudioCaptureService.getCaptureStatus()
+  })
+
+  // Multimodal AI processing handlers
+  ipcMain.handle('closezly:trigger-multimodal-assistance', async () => {
+    try {
+      const response = await AIInteractionService.processMultimodalAssistance()
+      return response
+    } catch (error) {
+      console.error('[IPC] Error triggering multimodal assistance:', error)
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  // AI interaction handlers
+  ipcMain.handle('closezly:handle-objection', async (event, objectionText: string) => {
+    try {
+      const response = await AIInteractionService.handleObjection(objectionText)
+      return response
+    } catch (error) {
+      console.error('[IPC] Error handling objection:', error)
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('closezly:process-multimodal-assistance', async (event, queryText?: string) => {
+    try {
+      const response = await AIInteractionService.processMultimodalAssistance(queryText)
+      return response
+    } catch (error) {
+      console.error('[IPC] Error processing multimodal assistance:', error)
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('closezly:get-ai-status', async () => {
+    return {
+      isProcessing: AIInteractionService.isCurrentlyProcessing()
+    }
+  })
+
+  // Permission management handlers
+  ipcMain.handle('closezly:check-permission', async (event, mediaType: string) => {
+    try {
+      const result = await PermissionHelper.checkPermission(mediaType as any)
+      return { success: true, ...result }
+    } catch (error) {
+      console.error('[IPC] Error checking permission:', error)
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('closezly:request-permission', async (event, mediaType: string) => {
+    try {
+      const result = await PermissionHelper.requestPermission(mediaType as any)
+      return { success: true, ...result }
+    } catch (error) {
+      console.error('[IPC] Error requesting permission:', error)
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('closezly:check-all-permissions', async () => {
+    try {
+      const result = await PermissionHelper.checkAllRequiredPermissions()
+      return { success: true, ...result }
+    } catch (error) {
+      console.error('[IPC] Error checking all permissions:', error)
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('closezly:show-permission-status', async () => {
+    try {
+      await PermissionHelper.showPermissionStatusDialog()
+      return { success: true }
+    } catch (error) {
+      console.error('[IPC] Error showing permission status:', error)
+      return { success: false, error: (error as Error).message }
     }
   })
 }
