@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- App Information -->
+    <key>CFBundleName</key>
+    <string>Closezly</string>
+    <key>CFBundleDisplayName</key>
+    <string>Closezly</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.closezly.app</string>
+    <key>CFBundleVersion</key>
+    <string>0.1.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleSignature</key>
+    <string>????</string>
+    
+    <!-- App Category -->
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.productivity</string>
+    
+    <!-- Privacy Usage Descriptions -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Closezly needs microphone access to capture voice commands and provide voice-to-text functionality for AI assistance.</string>
+    
+    <key>NSCameraUsageDescription</key>
+    <string>Closezly may access the camera for enhanced AI features and screen capture functionality.</string>
+    
+    <key>NSScreenCaptureDescription</key>
+    <string>Closezly needs screen recording permission to capture screenshots for AI analysis and provide context-aware assistance.</string>
+    
+    <!-- Use modern camera device types to avoid deprecation warnings -->
+    <key>NSCameraUseContinuityCameraDeviceType</key>
+    <true/>
+    
+    <!-- High Resolution Capable -->
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    
+    <!-- Support for dark mode -->
+    <key>NSRequiresAquaSystemAppearance</key>
+    <false/>
+    
+    <!-- Minimum macOS version -->
+    <key>LSMinimumSystemVersion</key>
+    <string>10.15.0</string>
+    
+    <!-- URL Schemes for authentication -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>Closezly Auth</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>closezly</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>
