@@ -30,6 +30,7 @@ export default function LoginPage() {
   const [isFromDesktop, setIsFromDesktop] = useState(false)
   const [isDesktopCheckComplete, setIsDesktopCheckComplete] = useState(false)
   const [isMounted, setIsMounted] = useState(false)
+  const [isOAuthSuccess, setIsOAuthSuccess] = useState(false)
 
   useEffect(() => {
     setIsMounted(true)
@@ -37,7 +38,9 @@ export default function LoginPage() {
     if (typeof window !== 'undefined') {
       const urlParams = new URLSearchParams(window.location.search)
       const source = urlParams.get('source')
+      const success = urlParams.get('success')
       setIsFromDesktop(source === 'desktop')
+      setIsOAuthSuccess(success === 'true')
     }
     // Mark desktop check as complete
     setIsDesktopCheckComplete(true)
@@ -143,8 +146,13 @@ export default function LoginPage() {
 
         setUser(data.session?.user || null)
         if (data.session?.user && !redirectHandled) {
-          // Use existing session handler for better UX
-          handleExistingSession(data.session)
+          // If this is OAuth success from desktop, show success card directly
+          if (isOAuthSuccess && isFromDesktop) {
+            handleSuccessfulLogin(data.session)
+          } else {
+            // Use existing session handler for better UX
+            handleExistingSession(data.session)
+          }
         }
       } catch (err) {
         console.error('Unexpected error checking session:', err)
@@ -290,9 +298,14 @@ export default function LoginPage() {
                       Welcome back, {user?.email}!
                     </p>
                   </div>
-                  <Button onClick={handleDesktopRedirect} className="w-full h-12 text-base font-semibold">
-                    Return to Desktop App
-                  </Button>
+                  <div className="space-y-3">
+                    <Button onClick={handleDesktopRedirect} className="w-full h-12 text-base font-semibold">
+                      Return to Desktop App
+                    </Button>
+                    <Button onClick={() => router.push('/dashboard')} variant="outline" className="w-full h-12 text-base font-semibold">
+                      Go to Dashboard
+                    </Button>
+                  </div>
                 </div>
               ) : showExistingSession && isFromDesktop ? (
                 <div className="space-y-6">
@@ -402,6 +415,7 @@ export default function LoginPage() {
                     <SocialLoginSection
                       mode="login"
                       onError={(error) => setError(error)}
+                      isFromDesktop={isFromDesktop}
                     />
                   )}
                 </div>

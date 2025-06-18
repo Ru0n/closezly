@@ -46,7 +46,17 @@ const PermissionDialog: React.FC<PermissionDialogProps> = ({
     try {
       const result = await window.electronAPI.checkAllPermissions()
       if (result.success) {
-        setPermissions(result.results)
+        // Convert the PermissionHelper results to our component's expected format
+        const convertedResults: Record<string, PermissionStatus> = {}
+        Object.entries(result.results).forEach(([mediaType, permResult]: [string, any]) => {
+          convertedResults[mediaType] = {
+            granted: permResult.status === 'granted',
+            status: permResult.status,
+            userGuidance: permResult.userGuidance,
+            canRequest: permResult.canRequest
+          }
+        })
+        setPermissions(convertedResults)
       }
     } catch (error) {
       console.error('Failed to check permissions:', error)
@@ -59,15 +69,15 @@ const PermissionDialog: React.FC<PermissionDialogProps> = ({
     setIsChecking(true)
     try {
       const result = await window.electronAPI.requestPermission(mediaType)
-      if (result.success) {
+      if (result.success && result.status) {
         // Update the specific permission status
         setPermissions(prev => ({
           ...prev,
           [mediaType]: {
             granted: result.status === 'granted',
-            status: result.status,
+            status: result.status || 'unknown',
             userGuidance: result.userGuidance,
-            canRequest: result.canRequest
+            canRequest: result.canRequest || false
           }
         }))
 
@@ -75,6 +85,9 @@ const PermissionDialog: React.FC<PermissionDialogProps> = ({
         if (result.status === 'granted' && onPermissionGranted) {
           onPermissionGranted()
         }
+
+        // Refresh all permissions to get updated status
+        await checkAllPermissions()
       }
     } catch (error) {
       console.error(`Failed to request ${mediaType} permission:`, error)
@@ -85,6 +98,10 @@ const PermissionDialog: React.FC<PermissionDialogProps> = ({
 
   const openSystemPreferences = () => {
     window.electronAPI.showPermissionStatus()
+  }
+
+  const openSpecificPrivacySettings = (mediaType: string) => {
+    window.electronAPI.openSpecificPrivacySettings(mediaType)
   }
 
   const getPermissionIcon = (mediaType: string, status: PermissionStatus) => {
@@ -108,8 +125,8 @@ const PermissionDialog: React.FC<PermissionDialogProps> = ({
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[95vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b">
           <h2 className="text-xl font-semibold text-gray-900">
@@ -128,20 +145,8 @@ const PermissionDialog: React.FC<PermissionDialogProps> = ({
           {showOnboarding && (
             <div className="mb-6">
               <p className="text-gray-600 mb-4">
-                To provide you with the best AI-powered sales assistance, Closezly needs access to your screen and microphone.
+                Closezly needs access to your screen and microphone to provide AI-powered sales assistance.
               </p>
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-                <div className="flex items-start">
-                  <AlertCircle className="w-5 h-5 text-blue-500 mt-0.5 mr-3 flex-shrink-0" />
-                  <div>
-                    <h4 className="font-medium text-blue-900 mb-1">Why we need these permissions:</h4>
-                    <ul className="text-sm text-blue-800 space-y-1">
-                      <li>• <strong>Screen Recording:</strong> Analyze what's on your screen for contextual AI suggestions</li>
-                      <li>• <strong>Microphone:</strong> Process conversation audio for real-time assistance</li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
             </div>
           )}
 
@@ -176,23 +181,23 @@ const PermissionDialog: React.FC<PermissionDialogProps> = ({
                         </p>
                       )}
                       
-                      <div className="flex space-x-2">
+                      <div className="flex space-x-3">
                         {status.canRequest && (
                           <button
                             onClick={() => requestPermission(permission)}
                             disabled={isChecking}
-                            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium transition-colors"
                           >
                             {isChecking ? 'Requesting...' : 'Request Permission'}
                           </button>
                         )}
-                        
+
                         <button
-                          onClick={openSystemPreferences}
-                          className="px-4 py-2 border border-gray-300 text-gray-700 rounded hover:bg-gray-50 text-sm flex items-center"
+                          onClick={() => openSpecificPrivacySettings(permission)}
+                          className="px-4 py-2 bg-gray-100 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-200 text-sm font-medium flex items-center transition-colors"
                         >
-                          <Settings className="w-4 h-4 mr-1" />
-                          Open Settings
+                          <Settings className="w-4 h-4 mr-2" />
+                          Open {permission === 'screen' ? 'Screen Recording' : 'Microphone'} Settings
                         </button>
                       </div>
                     </div>
@@ -203,48 +208,45 @@ const PermissionDialog: React.FC<PermissionDialogProps> = ({
           </div>
 
           {/* macOS Specific Instructions */}
-          {requiredPermissions.includes('screen') && !permissions.screen?.granted && (
-            <div className="mt-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          {(requiredPermissions.includes('screen') && !permissions.screen?.granted) ||
+           (requiredPermissions.includes('microphone') && !permissions.microphone?.granted) && (
+            <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
               <div className="flex items-start">
-                <AlertCircle className="w-5 h-5 text-yellow-500 mt-0.5 mr-3 flex-shrink-0" />
+                <AlertCircle className="w-5 h-5 text-blue-500 mt-0.5 mr-3 flex-shrink-0" />
                 <div>
-                  <h4 className="font-medium text-yellow-900 mb-2">Manual Setup Required (macOS)</h4>
-                  <ol className="text-sm text-yellow-800 space-y-1 list-decimal list-inside">
-                    <li>Open System Preferences</li>
-                    <li>Go to Security & Privacy</li>
-                    <li>Click on the Privacy tab</li>
-                    <li>Select "Screen Recording" from the list</li>
-                    <li>Check the box next to Closezly</li>
-                    <li>Restart the application</li>
-                  </ol>
+                  <h4 className="font-medium text-blue-900 mb-2">Quick Setup</h4>
+                  <p className="text-sm text-blue-800">
+                    Click the "Open Settings" button above to go directly to the permission settings.
+                    Enable Closezly in the list, then restart the app.
+                  </p>
                 </div>
               </div>
             </div>
           )}
 
           {/* Action Buttons */}
-          <div className="flex justify-between items-center mt-6 pt-4 border-t">
+          <div className="flex justify-between items-center mt-8 pt-6 border-t">
             <button
               onClick={checkAllPermissions}
               disabled={isChecking}
-              className="text-blue-600 hover:text-blue-700 text-sm font-medium disabled:opacity-50"
+              className="text-blue-600 hover:text-blue-700 text-sm font-medium disabled:opacity-50 transition-colors"
             >
               {isChecking ? 'Checking...' : 'Refresh Status'}
             </button>
-            
+
             <div className="flex space-x-3">
               {!allRequiredPermissionsGranted && (
                 <button
                   onClick={onClose}
-                  className="px-4 py-2 text-gray-600 hover:text-gray-800 text-sm"
+                  className="px-6 py-2 text-gray-600 hover:text-gray-800 text-sm font-medium transition-colors"
                 >
                   Skip for Now
                 </button>
               )}
-              
+
               <button
                 onClick={onClose}
-                className={`px-4 py-2 rounded text-sm font-medium ${
+                className={`px-6 py-2 rounded-md text-sm font-medium transition-colors ${
                   allRequiredPermissionsGranted
                     ? 'bg-green-600 text-white hover:bg-green-700'
                     : 'bg-gray-300 text-gray-700 hover:bg-gray-400'

@@ -76,6 +76,15 @@ export async function middleware(request: NextRequest) {
 
   // If user is authenticated and trying to access auth routes
   if (user && isAuthRoute) {
+    // Allow access to login page for OAuth success flow from desktop
+    const isOAuthSuccess = url.searchParams.get('success') === 'true'
+    const isFromDesktop = url.searchParams.get('source') === 'desktop'
+
+    if (pathname === '/login' && isOAuthSuccess && isFromDesktop) {
+      // Allow authenticated user to see the OAuth success card
+      return response
+    }
+
     url.pathname = '/dashboard'
     return NextResponse.redirect(url)
   }

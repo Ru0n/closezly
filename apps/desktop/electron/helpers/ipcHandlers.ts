@@ -12,7 +12,10 @@ import ScreenshotHelper from './ScreenshotHelper'
 import AuthHelper from './AuthHelper'
 import AIInteractionService from './AIInteractionService'
 import AudioCaptureService from './AudioCaptureService'
+import VoiceQueryService from './VoiceQueryService'
+import RealTimeVoiceService from './RealTimeVoiceService'
 import PermissionHelper from './PermissionHelper'
+import ModalWindowManager from './ModalWindowManager'
 
 interface ManualQueryPayload {
   queryText: string
@@ -254,6 +257,58 @@ function setupIpcHandlers(): void {
     return AudioCaptureService.getCaptureStatus()
   })
 
+  // Audio chunk handler for real-time processing
+  ipcMain.on('audio-chunk', (event, chunkData) => {
+    try {
+      // Convert base64 back to Buffer
+      const audioBuffer = Buffer.from(chunkData.data, 'base64')
+
+      // Forward directly to RealTimeVoiceService instead of AudioCaptureService
+      const voiceService = RealTimeVoiceService.getInstance()
+
+      // Only forward if RealTimeVoiceService is actively recording
+      const status = voiceService.getStatus()
+      if (status && status.isRecording) {
+        voiceService.receiveAudioData(audioBuffer)
+      }
+
+      // Log for debugging (more frequently during initial testing)
+      if (Math.random() < 0.1) { // Log ~10% of chunks for debugging
+        console.log(`[IPC] Received audio chunk: ${audioBuffer.length} bytes from ${chunkData.source}`)
+      }
+    } catch (error) {
+      console.error('[IPC] Error handling audio chunk:', error)
+    }
+  })
+
+  // Voice query handlers
+  ipcMain.handle('closezly:start-voice-query', async (event, options = {}) => {
+    try {
+      const result = await VoiceQueryService.startVoiceQuery(options)
+      return { success: result }
+    } catch (error) {
+      console.error('[IPC] Error starting voice query:', error)
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('closezly:stop-voice-query', async () => {
+    try {
+      const result = await VoiceQueryService.stopVoiceQuery()
+      return result
+    } catch (error) {
+      console.error('[IPC] Error stopping voice query:', error)
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('closezly:get-voice-query-status', async () => {
+    return {
+      isRecording: VoiceQueryService.isRecordingActive(),
+      duration: VoiceQueryService.getRecordingDuration()
+    }
+  })
+
   // Multimodal AI processing handlers
   ipcMain.handle('closezly:trigger-multimodal-assistance', async () => {
     try {
@@ -332,6 +387,254 @@ function setupIpcHandlers(): void {
       return { success: false, error: (error as Error).message }
     }
   })
+
+  ipcMain.handle('closezly:open-specific-privacy-settings', async (event, mediaType: string) => {
+    try {
+      await PermissionHelper.openSpecificPrivacySettings(mediaType as any)
+      return { success: true }
+    } catch (error) {
+      console.error('[IPC] Error opening specific privacy settings:', error)
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  // Real-time voice recording handlers
+  ipcMain.handle('closezly:start-voice-recording', async (event, options = {}) => {
+    try {
+      const voiceService = RealTimeVoiceService.getInstance()
+
+      // Set up event forwarding for this session
+      const forwardEvent = (eventName: string, data?: any) => {
+        event.sender.send(`closezly:voice-recording-${eventName}`, data)
+      }
+
+      // Custom event forwarding for frontend window events using IPC
+      const forwardWindowEvent = (eventName: string, data?: any) => {
+        try {
+          // Safely serialize data, handling potential circular references and non-serializable properties
+          const safeData = data ? {
+            text: data.text || '',
+            confidence: typeof data.confidence === 'number' ? data.confidence : 0,
+            isProcessing: Boolean(data.isProcessing),
+            timestamp: data.timestamp || Date.now(),
+            // Only include serializable properties
+            ...(data.segments && Array.isArray(data.segments) ? { segments: data.segments } : {}),
+            ...(data.words && Array.isArray(data.words) ? { words: data.words } : {})
+          } : {}
+
+          console.log(`[IPC] Forwarding window event '${eventName}' with data:`, safeData)
+
+          // Get the main window from AppState
+          const mainWindow = AppState.getMainWindow()
+          if (!mainWindow) {
+            console.error('[IPC] Main window not available for event forwarding.')
+            return
+          }
+
+          // Send event to the main window's renderer process
+          mainWindow.webContents.send('window-event', {
+            eventName,
+            data: safeData
+          })
+
+          console.log(`[IPC] Window event '${eventName}' sent successfully via IPC`)
+        } catch (error) {
+          console.error('[IPC] Error in forwardWindowEvent:', error)
+        }
+      }
+
+      // Remove any existing listeners to avoid duplicates
+      voiceService.removeAllListeners('recording-started')
+      voiceService.removeAllListeners('recording-stopped')
+      voiceService.removeAllListeners('transcription-started')
+      voiceService.removeAllListeners('transcription-completed')
+      voiceService.removeAllListeners('interim-transcription')
+      voiceService.removeAllListeners('streaming-error')
+      voiceService.removeAllListeners('streaming-fallback')
+      voiceService.removeAllListeners('recording-error')
+
+      // Add event listeners for real-time updates
+      voiceService.once('recording-started', (data: any) => {
+        forwardEvent('started', data)
+        console.log('[IPC] Voice recording started, streaming mode:', data?.streamingMode)
+      })
+
+      voiceService.once('recording-stopped', (data: any) => {
+        forwardEvent('stopped', data)
+        console.log('[IPC] Voice recording stopped')
+      })
+
+      voiceService.once('transcription-started', () => {
+        forwardEvent('transcription-started')
+        console.log('[IPC] Transcription started')
+      })
+
+      voiceService.on('transcription-completed', (result: any) => {
+        forwardEvent('transcription-completed', result)
+        forwardWindowEvent('final-transcription', result)
+        console.log('[IPC] Transcription completed:', result?.text?.substring(0, 50) + '...')
+      })
+
+      // Real-time streaming events
+      voiceService.on('interim-transcription', (result: any) => {
+        forwardEvent('interim-transcription', result)
+        forwardWindowEvent('interim-transcription', result)
+        console.log('[IPC] Interim transcription:', result?.text?.substring(0, 30) + '...')
+      })
+
+      // Phase 2.1: New streaming events
+      voiceService.on('streaming-transcription', (result: any) => {
+        forwardEvent('streaming-transcription', result)
+        forwardWindowEvent('streaming-transcription', result)
+        console.log('[IPC] Streaming transcription:', result?.text?.substring(0, 30) + '...')
+      })
+
+      voiceService.on('live-transcription', (result: any) => {
+        forwardEvent('live-transcription', result)
+        forwardWindowEvent('live-transcription', result)
+        console.log('[IPC] Live transcription:', result?.text?.substring(0, 50) + '...')
+      })
+
+      voiceService.on('streaming-error', (error: any) => {
+        forwardEvent('streaming-error', { error: error.message })
+        forwardWindowEvent('streaming-error', { error: error.message })
+        console.warn('[IPC] Streaming error:', error.message)
+      })
+
+      voiceService.on('streaming-fallback', (error: any) => {
+        forwardEvent('streaming-fallback', { error: error.message })
+        console.log('[IPC] Streaming fallback to batch mode:', error.message)
+      })
+
+      voiceService.once('recording-error', (error: any) => {
+        forwardEvent('error', { error: error.message })
+        console.error('[IPC] Recording error:', error.message)
+      })
+
+      const result = await voiceService.startRecording(options)
+
+
+
+      return { success: result }
+    } catch (error) {
+      console.error('[IPC] Error starting voice recording:', error)
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('closezly:stop-voice-recording', async () => {
+    try {
+      const voiceService = RealTimeVoiceService.getInstance()
+      const result = await voiceService.stopRecording()
+      return result
+    } catch (error) {
+      console.error('[IPC] Error stopping voice recording:', error)
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('closezly:get-voice-recording-status', async () => {
+    try {
+      const voiceService = RealTimeVoiceService.getInstance()
+      const status = voiceService.getStatus()
+      const streamingStatus = voiceService.getStreamingStatus()
+      return {
+        success: true,
+        ...status,
+        streaming: streamingStatus
+      }
+    } catch (error) {
+      console.error('[IPC] Error getting voice recording status:', error)
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('closezly:cancel-voice-recording', async () => {
+    try {
+      const voiceService = RealTimeVoiceService.getInstance()
+      const result = await voiceService.cancelRecording()
+      return { success: result }
+    } catch (error) {
+      console.error('[IPC] Error cancelling voice recording:', error)
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  // VAD status forwarding from renderer to main window and RealTimeVoiceService
+  ipcMain.on('closezly:vad-status', (event, vadStatus) => {
+    try {
+      // Forward VAD status to RealTimeVoiceService for speech-triggered transcription
+      const voiceService = RealTimeVoiceService.getInstance()
+
+      // Only forward if RealTimeVoiceService is actively recording
+      const status = voiceService.getStatus()
+      if (status && status.isRecording) {
+        voiceService.receiveVADStatus(vadStatus)
+      }
+
+      // Forward VAD status to all renderer processes for UI updates
+      const mainWindow = WindowHelper.getMainWindow()
+      if (mainWindow) {
+        mainWindow.webContents.send('vad-status', vadStatus)
+      }
+    } catch (error) {
+      console.error('[IPC] Error forwarding VAD status:', error)
+    }
+  })
+
+  // Modal window management handlers
+  ipcMain.handle('closezly:create-modal', async (event, modalId: string, options: any) => {
+    try {
+      const parentWindow = WindowHelper.getMainWindow()
+      const modalWindow = ModalWindowManager.createModalWindow(modalId, options, parentWindow || undefined)
+      return { success: true, modalId }
+    } catch (error) {
+      console.error('[IPC] Error creating modal window:', error)
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('closezly:close-modal', async (event, modalId: string) => {
+    try {
+      const closed = ModalWindowManager.closeModal(modalId)
+      return { success: closed }
+    } catch (error) {
+      console.error('[IPC] Error closing modal window:', error)
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('closezly:is-modal-open', async (event, modalId: string) => {
+    try {
+      const isOpen = ModalWindowManager.isModalOpen(modalId)
+      return { success: true, isOpen }
+    } catch (error) {
+      console.error('[IPC] Error checking modal status:', error)
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('closezly:update-modal-options', async (event, modalId: string, options: any) => {
+    try {
+      const updated = ModalWindowManager.updateModalOptions(modalId, options)
+      return { success: updated }
+    } catch (error) {
+      console.error('[IPC] Error updating modal options:', error)
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('closezly:focus-modal', async (event, modalId: string) => {
+    try {
+      const focused = ModalWindowManager.focusModal(modalId)
+      return { success: focused }
+    } catch (error) {
+      console.error('[IPC] Error focusing modal window:', error)
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  // Voice recording modal window handlers removed - now using inline interface
 }
 
 export default setupIpcHandlers

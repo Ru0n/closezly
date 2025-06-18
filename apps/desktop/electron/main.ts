@@ -13,6 +13,8 @@ import setupIpcHandlers from './helpers/ipcHandlers'
 import AppState from './helpers/AppState'
 import AuthHelper from './helpers/AuthHelper'
 import PermissionHelper from './helpers/PermissionHelper'
+import StreamingAudioProcessor from './helpers/StreamingAudioProcessor'
+import RealTimeVoiceService from './helpers/RealTimeVoiceService'
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling
 if (require('electron-squirrel-startup')) {
@@ -149,6 +151,29 @@ async function checkInitialPermissions() {
   }
 }
 
+// PHASE 1.3: Warm up transcription models on app startup
+async function warmUpTranscriptionModels() {
+  try {
+    console.log('[Main] Starting transcription model warm-up...')
+    const startTime = Date.now()
+
+    // Initialize RealTimeVoiceService (this triggers comprehensive warm-up)
+    const voiceService = RealTimeVoiceService.getInstance()
+
+    // Also explicitly warm up the streaming model
+    const streamingWarmUp = await StreamingAudioProcessor.warmUpModel('tiny.en')
+
+    const totalTime = Date.now() - startTime
+    console.log(`[Main] Transcription model warm-up completed in ${totalTime}ms`)
+    console.log(`[Main] Streaming model warm-up: ${streamingWarmUp ? 'SUCCESS' : 'FAILED'}`)
+
+    return streamingWarmUp
+  } catch (error) {
+    console.warn('[Main] Transcription model warm-up failed (non-critical):', error)
+    return false
+  }
+}
+
 // Create the main window when Electron is ready
 app.whenReady().then(async () => {
   // Set up permission handlers before creating windows
@@ -156,6 +181,9 @@ app.whenReady().then(async () => {
 
   // Check permissions on startup
   await checkInitialPermissions()
+
+  // PHASE 1.3: Warm up transcription models for faster first-use
+  warmUpTranscriptionModels() // Run in background, don't block UI
 
   // Create the main window
   WindowHelper.createMainWindow()

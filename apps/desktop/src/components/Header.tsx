@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Mic, Settings, LogIn, LogOut, XCircle, User } from 'lucide-react';
 import { motion } from 'framer-motion';
+import InlineVoiceRecording from './InlineVoiceRecording';
 
 // Import shadcn/ui components
 import { Button } from "@/components/ui/button";
@@ -28,7 +29,14 @@ interface HeaderProps {
   onStartOver: () => void;
   onQuitApp: () => void;
   hideMicAndTime?: boolean; // New optional prop
-  onSettingsOpenChange?: (open: boolean) => void; // Callback for when settings popover opens/closes
+  onSettingsOpenChange?: (open: boolean) => void; // New optional prop for settings popover state
+
+  // Inline voice recording props
+  showInlineRecording?: boolean;
+  onStartVoiceRecording?: () => void;
+  onStopVoiceRecording?: () => void;
+  onCancelVoiceRecording?: () => void;
+  onSendVoiceTranscript?: (transcript: string) => void;
 }
 
 const formatTime = (seconds: number): string => {
@@ -56,7 +64,12 @@ const Header: React.FC<HeaderProps> = ({
   onStartOver,
   onQuitApp,
   hideMicAndTime,
-  onSettingsOpenChange
+  onSettingsOpenChange,
+  showInlineRecording = false,
+  onStartVoiceRecording,
+  onStopVoiceRecording,
+  onCancelVoiceRecording,
+  onSendVoiceTranscript
 }) => {
   // For recording time display
   const [time, setTime] = useState<string>('00:00');
@@ -134,7 +147,7 @@ const Header: React.FC<HeaderProps> = ({
 
   return (
     <TooltipProvider>
-      <div className="flex items-center justify-between px-2 py-1 h-10 bg-black bg-opacity-50 backdrop-blur-xl w-full min-w-[650px] overflow-hidden">
+      <div className="flex items-center justify-between px-2 py-1 h-10 bg-black bg-opacity-50 backdrop-blur-xl w-full min-w-[650px] overflow-visible">
         {/* Left section: Dynamic auth button and main actions */}
         <div className="flex items-center space-x-1">
           {/* Dynamic First Button: Login / Upgrade to Pro / User Account */}
@@ -153,7 +166,7 @@ const Header: React.FC<HeaderProps> = ({
               );
             } else { // 'paid'
               return (
-                <Button variant="outline" size="sm" className="h-7 px-2 rounded-full flex items-center space-x-1.5" onClick={onAccountClick}>
+                <Button variant="user-profile" size="sm" className="h-7 px-2 rounded-full flex items-center space-x-1.5" onClick={onAccountClick}>
                   <div className="h-5 w-5 rounded-full flex items-center justify-center bg-muted overflow-hidden">
                     {profilePictureUrl ? (
                       <img
@@ -210,21 +223,35 @@ const Header: React.FC<HeaderProps> = ({
             </div>
           )}
 
-          {/* Mic button */}
+          {/* Mic button with inline recording */}
           {!hideMicAndTime && (
-            <Button variant="ghost" size="icon" className="h-7 w-7 flex-shrink-0 rounded-full bg-neutral-800 hover:bg-neutral-700 text-white relative" onClick={onToggleRecording}>
-              {isRecording ? (
-                <motion.div
-                  animate={{ scale: [1, 1.2, 1], opacity: [0.7, 1, 0.7] }}
-                  transition={{ duration: 1, repeat: Infinity, ease: "easeInOut" }}
-                  className="absolute inset-0 flex items-center justify-center"
-                >
-                  <Mic size={14} className="text-red-500" />
-                </motion.div>
-              ) : (
-                <Mic size={14} />
+            <div className="relative">
+              <Button variant="ghost" size="icon" className="h-7 w-7 flex-shrink-0 rounded-full bg-neutral-800 hover:bg-neutral-700 text-white relative" onClick={onToggleRecording}>
+                {isRecording ? (
+                  <motion.div
+                    animate={{ scale: [1, 1.2, 1], opacity: [0.7, 1, 0.7] }}
+                    transition={{ duration: 1, repeat: Infinity, ease: "easeInOut" }}
+                    className="absolute inset-0 flex items-center justify-center"
+                  >
+                    <Mic size={14} className="text-red-500" />
+                  </motion.div>
+                ) : (
+                  <Mic size={14} />
+                )}
+              </Button>
+
+              {/* Inline Voice Recording Interface */}
+              {showInlineRecording && (
+                <InlineVoiceRecording
+                  isVisible={showInlineRecording}
+                  isRecording={isRecording}
+                  onStartRecording={onStartVoiceRecording || (() => {})}
+                  onStopRecording={onStopVoiceRecording || (() => {})}
+                  onCancelRecording={onCancelVoiceRecording || (() => {})}
+                  onSendTranscript={onSendVoiceTranscript || (() => {})}
+                />
               )}
-            </Button>
+            </div>
           )}
 
           {/* Settings - Refactored Popover */}

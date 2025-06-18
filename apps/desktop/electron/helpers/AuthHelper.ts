@@ -143,11 +143,12 @@ class AuthHelper {
     }
 
     try {
-      // Call the backend API to refresh the token
-      const response = await fetch(`${this.backendUrl}/api/v1/auth/refresh-token`, {
+      // Use Supabase API directly to refresh the token
+      const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://127.0.0.1:54321'}/auth/v1/token?grant_type=refresh_token`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0'
         },
         body: JSON.stringify({
           refresh_token: tokens.refreshToken
@@ -158,8 +159,8 @@ class AuthHelper {
         throw new Error('Failed to refresh token');
       }
 
-      const data = await response.json() as { access_token: string, refresh_token: string };
-      await this.setTokens(data.access_token, data.refresh_token, 3600); // Assuming 1 hour expiry
+      const data = await response.json() as { access_token: string, refresh_token: string, expires_in: number };
+      await this.setTokens(data.access_token, data.refresh_token, data.expires_in || 3600);
       return true;
     } catch (error) {
       console.error('Error refreshing token:', error);
@@ -170,10 +171,11 @@ class AuthHelper {
 
   private async fetchUserProfile(accessToken: string): Promise<void> {
     try {
-      // Call the backend API to get user profile
-      const response = await fetch(`${this.backendUrl}/api/v1/auth/me`, {
+      // Use Supabase API directly to get user profile
+      const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://127.0.0.1:54321'}/auth/v1/user`, {
         headers: {
-          'Authorization': `Bearer ${accessToken}`
+          'Authorization': `Bearer ${accessToken}`,
+          'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0'
         }
       });
 
@@ -181,20 +183,37 @@ class AuthHelper {
         throw new Error('Failed to fetch user profile');
       }
 
-      const data = await response.json();
-      const user = data.user;
+      const user = await response.json();
 
       if (!user) {
         throw new Error('User data not found in response');
       }
 
+      // Get additional user data from the users table if needed
+      let userData = null;
+      try {
+        const userDataResponse = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://127.0.0.1:54321'}/rest/v1/users?id=eq.${user.id}&select=username,full_name,profile_picture_url,subscription_status`, {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0'
+          }
+        });
+
+        if (userDataResponse.ok) {
+          const userDataArray = await userDataResponse.json();
+          userData = userDataArray[0] || null;
+        }
+      } catch (error) {
+        console.warn('Could not fetch additional user data:', error);
+      }
+
       AppState.setAuthenticated(true, {
         id: user.id,
         email: user.email,
-        fullName: user.full_name,
-        username: user.username,
-        profilePictureUrl: user.profile_picture_url,
-        subscriptionStatus: user.subscription_status || 'free'
+        fullName: userData?.full_name || user.user_metadata?.full_name,
+        username: userData?.username || user.user_metadata?.username,
+        profilePictureUrl: userData?.profile_picture_url || user.user_metadata?.profile_picture_url,
+        subscriptionStatus: userData?.subscription_status || 'free'
       });
     } catch (error) {
       console.error('Error fetching user profile:', error);

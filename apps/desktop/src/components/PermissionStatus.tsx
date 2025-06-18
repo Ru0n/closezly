@@ -55,7 +55,17 @@ const PermissionStatusComponent: React.FC<PermissionStatusProps> = ({
     try {
       const result = await window.electronAPI.checkAllPermissions()
       if (result.success) {
-        setPermissions(result.results)
+        // Transform backend data to frontend format
+        const transformedPermissions: Record<string, PermissionStatus> = {}
+        Object.entries(result.results).forEach(([mediaType, backendResult]: [string, any]) => {
+          transformedPermissions[mediaType] = {
+            granted: backendResult.status === 'granted',
+            status: backendResult.status,
+            userGuidance: backendResult.userGuidance,
+            canRequest: backendResult.canRequest
+          }
+        })
+        setPermissions(transformedPermissions)
       }
     } catch (error) {
       console.error('Failed to check permissions:', error)

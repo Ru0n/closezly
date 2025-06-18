@@ -11,17 +11,18 @@ export async function GET(request: Request) {
   if (code) {
     const supabase = createClient()
     const { error } = await supabase.auth.exchangeCodeForSession(code)
-    
+
     if (!error) {
       // Check if this is from desktop app
       if (source === 'desktop') {
+        // For OAuth from desktop, always redirect to login page to show success card
         return NextResponse.redirect(`${origin}/login?success=true&source=desktop`)
       } else {
         // Redirect to dashboard for web users
         return NextResponse.redirect(`${origin}${next}`)
       }
     }
-    
+
     console.error('Error exchanging code for session:', error)
   }
 

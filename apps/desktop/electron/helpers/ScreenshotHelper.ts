@@ -138,10 +138,11 @@ class ScreenshotHelper {
 
       console.log('[Screenshot] Screen recording permission granted, proceeding with window capture...')
 
-      // Get all available window sources
+      // Get all available window sources with larger thumbnail for better quality
       const sources = await desktopCapturer.getSources({
         types: ['window'],
-        thumbnailSize: { width: 1280, height: 720 }
+        thumbnailSize: { width: 1920, height: 1080 },
+        fetchWindowIcons: false // Optimize performance
       })
 
       console.log(`[Screenshot] Found ${sources.length} window sources`)
@@ -152,18 +153,32 @@ class ScreenshotHelper {
         return this.captureFullScreen()
       }
 
-      // Filter out our own window and find the most relevant window
-      const filteredSources = sources.filter(source =>
-        !source.name.toLowerCase().includes('closezly') &&
-        !source.name.toLowerCase().includes('electron') &&
-        source.thumbnail &&
-        source.thumbnail.getSize().width > 100 // Ignore very small windows
-      )
+      // Log all available windows for debugging
+      sources.forEach((source, index) => {
+        const thumbnailSize = source.thumbnail ? source.thumbnail.getSize() : { width: 0, height: 0 }
+        console.log(`[Screenshot] Window ${index}: "${source.name}" - ${thumbnailSize.width}x${thumbnailSize.height}`)
+      })
 
-      const activeWindow = filteredSources[0] || sources[0]
+      // Filter out our own window and find the most relevant window
+      const filteredSources = sources.filter(source => {
+        const isOwnWindow = source.name.toLowerCase().includes('closezly') ||
+                           source.name.toLowerCase().includes('electron')
+        const hasValidThumbnail = source.thumbnail &&
+                                 source.thumbnail.getSize().width > 100 &&
+                                 source.thumbnail.getSize().height > 100
+        const hasValidData = source.thumbnail &&
+                            source.thumbnail.toDataURL().length > 100
+
+        console.log(`[Screenshot] Evaluating "${source.name}": isOwnWindow=${isOwnWindow}, hasValidThumbnail=${hasValidThumbnail}, hasValidData=${hasValidData}`)
+
+        return !isOwnWindow && hasValidThumbnail && hasValidData
+      })
+
+      const activeWindow = filteredSources[0]
 
       if (!activeWindow || !activeWindow.thumbnail) {
-        console.warn('[Screenshot] No suitable active window found, falling back to full screen')
+        console.warn('[Screenshot] No suitable active window found after filtering, falling back to full screen')
+        console.warn('[Screenshot] Available windows:', sources.map(s => s.name))
         return this.captureFullScreen()
       }
 
@@ -171,6 +186,23 @@ class ScreenshotHelper {
 
       // Convert the thumbnail to base64
       const base64Image = activeWindow.thumbnail.toDataURL()
+
+      // Debug: Check the captured image data
+      console.log('[Screenshot] Raw image data info:', {
+        dataLength: base64Image.length,
+        hasDataPrefix: base64Image.startsWith('data:'),
+        format: base64Image.match(/^data:image\/([a-z]+);base64,/)?.[1] || 'unknown',
+        preview: base64Image.substring(0, 100) + '...'
+      })
+
+      // Validate the captured image
+      if (!base64Image || base64Image.length < 100) {
+        console.error('[Screenshot] Captured image data is too small or invalid:', {
+          length: base64Image?.length || 0,
+          data: base64Image
+        })
+        throw new Error('Screenshot capture returned invalid or empty data')
+      }
 
       // Reset processing state
       AppState.setProcessing(false)
@@ -290,9 +322,19 @@ class ScreenshotHelper {
    */
   public async optimizeImageForLLM(base64Image: string): Promise<string> {
     try {
+      console.log('[Screenshot] Starting image optimization for LLM...')
+      console.log('[Screenshot] Input image info:', {
+        totalLength: base64Image.length,
+        hasDataPrefix: base64Image.startsWith('data:'),
+        format: base64Image.match(/^data:image\/([a-z]+);base64,/)?.[1] || 'unknown'
+      })
+
       // Extract the image data from the data URL
       const base64Data = base64Image.replace(/^data:image\/[a-z]+;base64,/, '')
+      console.log('[Screenshot] Extracted base64 data length:', base64Data.length)
+
       const imageBuffer = Buffer.from(base64Data, 'base64')
+      console.log('[Screenshot] Image buffer size:', imageBuffer.length, 'bytes')
 
       // For now, we'll implement basic optimization without external libraries
       // In production, consider using Sharp or similar for better optimization

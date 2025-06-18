@@ -100,8 +100,12 @@ class WindowHelper {
       // In development, load from the dev server
       this.mainWindow.loadURL('http://localhost:5173')
 
-      // Open DevTools in development
-      this.mainWindow.webContents.openDevTools({ mode: 'detach' })
+      // Open DevTools in development after the window has finished loading
+      this.mainWindow.webContents.once('did-finish-load', () => {
+        if (this.mainWindow) {
+          this.mainWindow.webContents.openDevTools({ mode: 'detach' })
+        }
+      })
     } else {
       // In production, load from the built files
       this.mainWindow.loadFile(path.join(__dirname, '../../index.html'))

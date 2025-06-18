@@ -228,6 +228,38 @@ class PermissionHelper extends EventEmitter {
   }
 
   /**
+   * Opens specific macOS privacy settings for a given permission type
+   */
+  public async openSpecificPrivacySettings(mediaType: MediaType): Promise<void> {
+    let settingsUrl: string
+
+    switch (mediaType) {
+      case 'screen':
+        settingsUrl = 'x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_ScreenCapture'
+        break
+      case 'microphone':
+        settingsUrl = 'x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Microphone'
+        break
+      case 'camera':
+        settingsUrl = 'x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Camera'
+        break
+      default:
+        // Fallback to general privacy settings
+        settingsUrl = 'x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy'
+        break
+    }
+
+    try {
+      await shell.openExternal(settingsUrl)
+      console.log(`[Permission] Opened ${mediaType} privacy settings: ${settingsUrl}`)
+    } catch (error) {
+      console.error(`[Permission] Failed to open ${mediaType} privacy settings:`, error)
+      // Fallback to general privacy settings
+      await shell.openExternal('x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy')
+    }
+  }
+
+  /**
    * Clears the permission cache to force fresh checks
    */
   public clearCache(): void {

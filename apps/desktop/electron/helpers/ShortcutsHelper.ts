@@ -27,6 +27,7 @@ class ShortcutsHelper {
     this.registerToggleOverlayShortcut()
     this.registerTriggerAIQueryShortcut()
     this.registerToggleCallRecordingShortcut()
+    this.registerVoiceRecordingShortcuts()
     this.registerMoveOverlayShortcuts()
   }
 
@@ -91,6 +92,32 @@ class ShortcutsHelper {
       const mainWindow = WindowHelper.getMainWindow()
       if (mainWindow) {
         mainWindow.webContents.send('closezly:call-recording-toggled', AppState.getActiveCall().isActive)
+      }
+    })
+  }
+
+  private registerVoiceRecordingShortcuts(): void {
+    // Quick voice recording with Alt+V
+    this.registerShortcut('Alt+V', () => {
+      const mainWindow = WindowHelper.getMainWindow()
+      if (mainWindow) {
+        mainWindow.webContents.send('closezly:trigger-voice-recording')
+      }
+    })
+
+    // Alternative voice recording shortcut with Ctrl+Shift+V
+    this.registerShortcut('Ctrl+Shift+V', () => {
+      const mainWindow = WindowHelper.getMainWindow()
+      if (mainWindow) {
+        mainWindow.webContents.send('closezly:trigger-voice-recording')
+      }
+    })
+
+    // Cancel voice recording with Escape (when recording is active)
+    this.registerShortcut('Escape', () => {
+      const mainWindow = WindowHelper.getMainWindow()
+      if (mainWindow) {
+        mainWindow.webContents.send('closezly:cancel-voice-recording-hotkey')
       }
     })
   }

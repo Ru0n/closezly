@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express'
 import authRouter from './auth'
+import assistRouter from './assist'
 
 const router = Router()
 
@@ -9,5 +10,6 @@ router.get('/health', (req: Request, res: Response) => {
 })
 
 router.use('/auth', authRouter)
+router.use('/assist', assistRouter)
 
 export default router

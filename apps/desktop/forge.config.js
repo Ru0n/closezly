@@ -4,6 +4,7 @@ module.exports = {
     icon: './assets/icon',
     appBundleId: 'com.closezly.app',
     appCategoryType: 'public.app-category.productivity',
+    extendInfo: './Info.plist',
     osxSign: {
       identity: process.env.APPLE_DEVELOPER_IDENTITY,
       hardenedRuntime: true,

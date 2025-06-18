@@ -27,7 +27,7 @@ export default function DashboardPage() {
 
     setIsMounted(true)
 
-    // Check if this page was accessed from desktop app
+    // Check if this page was accessed from desktop app (for existing sessions)
     if (typeof window !== 'undefined') {
       const urlParams = new URLSearchParams(window.location.search)
       const source = urlParams.get('source')
@@ -87,7 +87,8 @@ export default function DashboardPage() {
   const handleSwitchAccount = async () => {
     const supabase = createClient()
     await supabase.auth.signOut()
-    // After logout, the auth state change will redirect to login with source=desktop
+    // Redirect to login with source=desktop parameter
+    router.push('/login?source=desktop')
   }
 
   // Dismiss desktop auth prompt
@@ -104,15 +105,17 @@ export default function DashboardPage() {
   return (
     <div className="p-6">{/* Removed the full page wrapper since layout handles it */}
 
-      {/* Desktop App Authentication Banner */}
-      {showDesktopAuth && (
-        <div className="bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800">
-          <div className="container mx-auto px-4 py-4">
+      {/* Desktop App Authentication Banner - Only for existing sessions */}
+      {showDesktopAuth && isFromDesktop && user && (
+        <div className="mb-6">
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-3">
                 <div className="flex-shrink-0">
-                  <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center">
-                    <Download className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  <div className="w-8 h-8 bg-blue-100 dark:bg-blue-800 rounded-full flex items-center justify-center">
+                    <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
                   </div>
                 </div>
                 <div>
@@ -126,7 +129,7 @@ export default function DashboardPage() {
               </div>
               <div className="flex items-center space-x-3">
                 <Button onClick={handleDesktopAuth} size="sm" className="bg-blue-600 hover:bg-blue-700">
-                  Continue with This Account
+                  Return to Desktop App
                 </Button>
                 <Button onClick={handleSwitchAccount} variant="outline" size="sm">
                   Switch Account

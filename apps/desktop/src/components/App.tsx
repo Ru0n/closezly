@@ -9,7 +9,10 @@ import Header from './Header';
 // import AudioInputControl from './AudioInputControl';
 import RecordingFeedbackPopup from './RecordingFeedbackPopup';
 import PermissionDialog from './PermissionDialog';
+import PermissionModalDialog from './PermissionModalDialog';
+// Removed VoiceRecordingModalWindow - now using inline interface
 import PermissionStatus from './PermissionStatus';
+import { MainWindowOnly, ModalWindowOnly } from './ModalWindow';
 import '../utils/rendererAudioCapture'; // Initialize renderer audio capture
 
 // ElectronAPI interface is now defined in electron.d.ts
@@ -18,6 +21,7 @@ import '../utils/rendererAudioCapture'; // Initialize renderer audio capture
 const APP_COMPACT_HEIGHT = 40; // Match COMPACT_WINDOW_HEIGHT in WindowHelper.ts
 const APP_EXPANDED_HEIGHT = 700; // Match EXPANDED_WINDOW_HEIGHT in WindowHelper.ts
 const APP_SETTINGS_HEIGHT = 300; // Height when settings popover is open
+const APP_INLINE_RECORDING_HEIGHT = 360; // Height for inline recording dropdown (header + dropdown + margin)
 const APP_WIDTH = 650; // Match WINDOW_WIDTH in WindowHelper.ts
 
 // Define interfaces for our component props and state
@@ -61,7 +65,6 @@ const App: React.FC = () => {
   });
 
   const [isBodyAreaVisible, setIsBodyAreaVisible] = useState(false);
-  const [recordingTime, setRecordingTime] = useState(0);
   const [isRecordingFeedbackVisible, setIsRecordingFeedbackVisible] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   // Commented out unused state - will be used in future implementation
@@ -73,6 +76,9 @@ const App: React.FC = () => {
   const [showPermissionDialog, setShowPermissionDialog] = useState(false);
   const [isFirstLaunch, setIsFirstLaunch] = useState(false);
   const [hasCheckedPermissions, setHasCheckedPermissions] = useState(false);
+  const [hasPermissionIssues, setHasPermissionIssues] = useState(false);
+  const [showInlineRecording, setShowInlineRecording] = useState(false);
+  const [isVoiceRecording, setIsVoiceRecording] = useState(false);
 
   // Determine if the body section should be visible (based on content)
   // This existing logic can determine *what* is in the body,
@@ -150,22 +156,7 @@ const App: React.FC = () => {
     };
   }, []); // Empty dependency array ensures this runs once on mount and cleans up on unmount
 
-  // Handle recording timer
-  useEffect(() => {
-    let interval: NodeJS.Timeout | null = null;
-
-    if (appState.activeCall.isActive) {
-      interval = setInterval(() => {
-        setRecordingTime((prev) => prev + 1);
-      }, 1000);
-    } else {
-      setRecordingTime(0);
-    }
-
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [appState.activeCall.isActive]);
+  // Note: Recording timer removed since we're now using voice-to-text queries instead of call recording
 
   // Check initial permissions and determine if onboarding is needed
   const checkInitialPermissions = async () => {
@@ -174,7 +165,7 @@ const App: React.FC = () => {
     try {
       const result = await window.electronAPI.checkAllPermissions();
       if (result.success) {
-        const hasPermissionIssues = Object.values(result.results).some((p: any) => !p.granted);
+        const permissionIssues = Object.values(result.results).some((p: any) => p.status !== 'granted');
 
         // Check if this is likely a first launch (no permissions granted)
         const allPermissionsNotDetermined = Object.values(result.results).every(
@@ -185,30 +176,34 @@ const App: React.FC = () => {
           setIsFirstLaunch(true);
         }
 
-        // Don't show dialog immediately on startup, wait for user to try AI features
+        // Set permission issues state
+        setHasPermissionIssues(permissionIssues);
         setHasCheckedPermissions(true);
       }
     } catch (error) {
       console.error('Failed to check initial permissions:', error);
       setHasCheckedPermissions(true);
+      setHasPermissionIssues(true); // Assume there are issues if we can't check
     }
   };
 
   // Effect to resize window when body visibility changes
   useEffect(() => {
-    console.log(`[App.tsx] isBodyAreaVisible changed to: ${isBodyAreaVisible}. Triggering resize.`);
-    if (isBodyAreaVisible || isRecordingFeedbackVisible) { // Ensure window expands for feedback UI too
+    console.log(`[App.tsx] Window resize trigger - isBodyAreaVisible: ${isBodyAreaVisible}, isRecordingFeedbackVisible: ${isRecordingFeedbackVisible}, isSettingsOpen: ${isSettingsOpen}, showInlineRecording: ${showInlineRecording}`);
+
+    if (isBodyAreaVisible || isRecordingFeedbackVisible) {
+      // Ensure window expands for feedback UI too
       window.electronAPI.resizeWindow(APP_WIDTH, APP_EXPANDED_HEIGHT);
-      // setPreviousWindowHeight(APP_EXPANDED_HEIGHT);
+    } else if (showInlineRecording) {
+      // Expand window for inline recording dropdown
+      window.electronAPI.resizeWindow(APP_WIDTH, APP_INLINE_RECORDING_HEIGHT);
     } else if (isSettingsOpen) {
       // If settings is open but body is not visible, use settings height
       window.electronAPI.resizeWindow(APP_WIDTH, APP_SETTINGS_HEIGHT);
-      // setPreviousWindowHeight(APP_SETTINGS_HEIGHT);
     } else {
       window.electronAPI.resizeWindow(APP_WIDTH, APP_COMPACT_HEIGHT);
-      // setPreviousWindowHeight(APP_COMPACT_HEIGHT);
     }
-  }, [isBodyAreaVisible, isRecordingFeedbackVisible, isSettingsOpen]);
+  }, [isBodyAreaVisible, isRecordingFeedbackVisible, isSettingsOpen, showInlineRecording]);
 
   // Handle taking a screenshot and processing it
   const handleTakeScreenshot = async () => {
@@ -235,13 +230,20 @@ const App: React.FC = () => {
     try {
       const permissionResult = await window.electronAPI.checkAllPermissions();
       if (permissionResult.success) {
-        const hasPermissionIssues = Object.values(permissionResult.results).some((p: any) => !p.granted);
+        // Check if any required permissions are not granted
+        const hasPermissionIssues = Object.values(permissionResult.results).some((p: any) => p.status !== 'granted');
+
+        console.log('[App.tsx] Permission check results:', permissionResult.results);
+        console.log('[App.tsx] Has permission issues:', hasPermissionIssues);
 
         if (hasPermissionIssues) {
           // Show permission dialog for first-time users or when permissions are missing
-          setShowPermissionDialog(true);
+          console.log('[App.tsx] Showing permission dialog due to missing permissions');
+          await handleOpenPermissionDialog();
           return;
         }
+
+        console.log('[App.tsx] All permissions granted, proceeding with AI processing');
       }
     } catch (error) {
       console.error('Failed to check permissions before AI processing:', error);
@@ -349,49 +351,92 @@ const App: React.FC = () => {
   };
 
   const handleToggleRecording = async () => {
-    if (appState.activeCall.isActive) {
-      // Stopping recording
-      window.electronAPI.endCall(); // This should trigger onStateUpdated, which sets appState.activeCall.isActive to false
-      setIsRecordingFeedbackVisible(false);
-      setIsBodyAreaVisible(true); // Open the main analysis area
-      setIsAnalyzing(true);
-      setAnalysisStatusText("Analyzing conversation...");
-
-      try {
-        // Process the conversation with AI
-        const response = await window.electronAPI.takeScreenshotAndProcess();
-
-        if (response.success) {
-          setIsAnalyzing(false);
-          if (response.suggestions && response.suggestions.length > 0) {
-            // Display conversation analysis and suggestions
-            const suggestionText = response.suggestions
-              .map((s: any, index: number) => `${index + 1}. ${s.text}`)
-              .join('\n\n');
-            setAnalysisStatusText(`Conversation Analysis:\n\n${suggestionText}`);
-          } else if (response.response) {
-            setAnalysisStatusText(`Conversation Analysis:\n\n${response.response}`);
-          } else {
-            setAnalysisStatusText("Conversation recorded successfully. No specific insights at this time.");
-          }
-        } else {
-          setIsAnalyzing(false);
-          setAnalysisStatusText(`Analysis Error: ${response.error || 'Failed to analyze conversation'}`);
-        }
-      } catch (error) {
-        console.error('[App.tsx] Error analyzing conversation:', error);
-        setIsAnalyzing(false);
-        setAnalysisStatusText('Error: Failed to analyze conversation');
-      }
+    // Toggle inline voice recording interface
+    if (!showInlineRecording) {
+      setShowInlineRecording(true)
+      // Start recording immediately
+      handleStartVoiceRecording()
     } else {
-      // Starting recording
-      window.electronAPI.startCall(); // This should trigger onStateUpdated, which sets appState.activeCall.isActive to true
-      setIsRecordingFeedbackVisible(true);
-      setIsBodyAreaVisible(false); // Keep main analysis area closed
-      setIsAnalyzing(false);
-      setAnalysisStatusText("Closezly is listening...");
-      setRecordingTime(0); // Reset timer on new recording start
+      // If already showing, stop recording
+      if (isVoiceRecording) {
+        console.log('[App.tsx] Toggle recording - stopping recording')
+        await handleStopVoiceRecording()
+      } else {
+        setShowInlineRecording(false)
+      }
     }
+  };
+
+  // Handle start voice recording
+  const handleStartVoiceRecording = async () => {
+    try {
+      setIsVoiceRecording(true)
+      const result = await window.electronAPI.startVoiceRecording({
+        modelName: 'base.en',
+        maxDuration: 45000, // 45 seconds - reasonable limit
+        wordTimestamps: true,
+        enableStreaming: true, // Enable real-time streaming transcription
+        streamingFallback: true // Fallback to batch processing if streaming fails
+      })
+
+      if (!result.success) {
+        console.error('[App.tsx] Failed to start voice recording:', result.error)
+        setIsVoiceRecording(false)
+        // Don't close the interface here - let the InlineVoiceRecording component handle it
+      }
+    } catch (error) {
+      console.error('[App.tsx] Error starting voice recording:', error)
+      setIsVoiceRecording(false)
+      // Don't close the interface here - let the InlineVoiceRecording component handle it
+    }
+  }
+
+  // Handle stop voice recording
+  const handleStopVoiceRecording = async () => {
+    try {
+      console.log('[App.tsx] Stopping voice recording...')
+      setIsVoiceRecording(false)
+      // Don't handle the result here - let the InlineVoiceRecording component handle it
+      // This function is just for updating the App-level recording state
+    } catch (error) {
+      console.error('[App.tsx] Error stopping voice recording:', error)
+      setIsVoiceRecording(false)
+    }
+  }
+
+  // Handle cancel voice recording
+  const handleCancelVoiceRecording = async () => {
+    try {
+      console.log('[App.tsx] Cancelling voice recording...')
+      setIsVoiceRecording(false)
+      setShowInlineRecording(false)
+
+      // Cancel the recording process
+      const result = await window.electronAPI.cancelVoiceRecording()
+      if (!result.success) {
+        console.error('[App.tsx] Failed to cancel voice recording:', result.error)
+      }
+    } catch (error) {
+      console.error('[App.tsx] Error cancelling voice recording:', error)
+    }
+  }
+
+  // Handle voice recording transcript completion (from InlineVoiceRecording component)
+  const handleSendVoiceTranscript = async (transcript: string) => {
+    console.log('[App.tsx] Voice transcript completed:', transcript);
+
+    // Set the transcript as the query input
+    setQueryInput(transcript);
+
+    // Show the query input area with the transcribed text
+    setIsBodyAreaVisible(true);
+    setShowQueryInput(true);
+    setAnalysisStatusText('');
+    setIsAnalyzing(false);
+
+    // Close the inline recording interface
+    setShowInlineRecording(false);
+    setIsVoiceRecording(false);
   };
 
   // Handle visibility toggle from Header button
@@ -424,19 +469,47 @@ const App: React.FC = () => {
   };
 
   // Permission dialog handlers
-  const handlePermissionDialogClose = () => {
+  const handlePermissionDialogClose = async () => {
     setShowPermissionDialog(false);
+    // Close the modal window
+    try {
+      await window.electronAPI.closeModal('permission-dialog');
+    } catch (error) {
+      console.error('Failed to close permission modal:', error);
+    }
   };
 
-  const handlePermissionGranted = () => {
+  const handlePermissionGranted = async () => {
     console.log('[App.tsx] Permission granted, proceeding with AI processing');
     setShowPermissionDialog(false);
+    // Close the modal window
+    try {
+      await window.electronAPI.closeModal('permission-dialog');
+    } catch (error) {
+      console.error('Failed to close permission modal:', error);
+    }
     // Retry the AI processing now that permissions are granted
     handleAskAIClick();
   };
 
-  const handleOpenPermissionDialog = () => {
+  const handleOpenPermissionDialog = async () => {
     setShowPermissionDialog(true);
+    // Open the modal window
+    try {
+      const modalOptions = {
+        width: 700,
+        height: 600,
+        minWidth: 600,
+        minHeight: 500,
+        resizable: false,
+        title: isFirstLaunch ? 'Welcome to Closezly AI' : 'Permissions Required',
+        modal: true,
+        center: true
+      };
+      await window.electronAPI.createModal('permission-dialog', modalOptions);
+    } catch (error) {
+      console.error('Failed to open permission modal:', error);
+    }
   };
 
   // Determine what to show in the AI Response section based on state
@@ -479,25 +552,33 @@ const App: React.FC = () => {
   const hideHeaderMic = isBodyAreaVisible && appState.activeCall.isActive;
 
   return (
-    <div className={`flex flex-col h-screen w-full bg-transparent text-white antialiased rounded-xl shadow-2xl`}>
-      <Header
-        isRecording={appState.activeCall.isActive} // Header might still need to know for its own icon state if not fully hidden
-        recordingTime={recordingTime}
-        onToggleRecording={handleToggleRecording} // Use the new handler
-        onToggleVisibility={handleToggleVisibility}
-        isVisible={appState.overlayVisible} // Assuming overlayVisible reflects the window's actual visibility
-        isAuthenticated={appState.isAuthenticated}
-        userSubscriptionStatus={appState.user?.subscriptionStatus || null}
-        userInitials={appState.user?.initials}
-        userEmail={appState.user?.email}
-        username={appState.user?.username}
-        profilePictureUrl={appState.user?.profilePictureUrl}
-        onLoginClick={handleLogin}
-        onUpgradeClick={handleUpgrade}
-        onAccountClick={handleAccount}
-        onAskAIClick={handleAskAIClick}
-        onStartOver={handleStartOver}
-        onQuitApp={handleQuit}
+    <>
+      {/* Main Window Content */}
+      <MainWindowOnly>
+        <div className={`flex flex-col h-screen w-full bg-transparent text-white antialiased rounded-xl shadow-2xl`}>
+          <Header
+            isRecording={isVoiceRecording} // Use voice recording state
+            recordingTime={0} // No recording time display for inline interface
+            onToggleRecording={handleToggleRecording} // Toggle inline voice recording
+            onToggleVisibility={handleToggleVisibility}
+            showInlineRecording={showInlineRecording}
+            onStartVoiceRecording={handleStartVoiceRecording}
+            onStopVoiceRecording={handleStopVoiceRecording}
+            onCancelVoiceRecording={handleCancelVoiceRecording}
+            onSendVoiceTranscript={handleSendVoiceTranscript}
+            isVisible={appState.overlayVisible} // Assuming overlayVisible reflects the window's actual visibility
+            isAuthenticated={appState.isAuthenticated}
+            userSubscriptionStatus={appState.user?.subscriptionStatus || null}
+            userInitials={appState.user?.initials}
+            userEmail={appState.user?.email}
+            username={appState.user?.username}
+            profilePictureUrl={appState.user?.profilePictureUrl}
+            onLoginClick={handleLogin}
+            onUpgradeClick={handleUpgrade}
+            onAccountClick={handleAccount}
+            onAskAIClick={handleAskAIClick}
+            onStartOver={handleStartOver}
+            onQuitApp={handleQuit}
         hideMicAndTime={hideHeaderMic} // New prop
         onSettingsOpenChange={handleSettingsOpenChange} // Pass the settings open change handler
       />
@@ -574,6 +655,23 @@ const App: React.FC = () => {
               >
                 {analysisStatusText || "Click 'Ask AI' to analyze your screen, or ask a specific question below."}
               </motion.p>
+              {/* Show follow-up options when there's a response */}
+              {analysisStatusText && (
+                <div className="flex space-x-2 mt-4 pt-3 border-t border-gray-600">
+                  <button
+                    onClick={handleShowQueryInput}
+                    className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                  >
+                    Ask Follow-up
+                  </button>
+                  <button
+                    onClick={handleAskAIClick}
+                    className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
+                  >
+                    Re-analyze Screen
+                  </button>
+                </div>
+              )}
               {!analysisStatusText && (
                 <button
                   onClick={handleShowQueryInput}
@@ -588,41 +686,47 @@ const App: React.FC = () => {
         </motion.div>
       )}
 
-      {/* Recording Feedback Popup Container & Component */}
-      {isRecordingFeedbackVisible && (
-        // Position this container absolutely, below header (top-10), towards the right (right-4).
-        // Use flex to align its content (the popup itself).
-        <div className="absolute top-10 right-4 pt-2 flex flex-col items-end z-40 pointer-events-none">
-          {/* pointer-events-none on container, popup itself will have pointer-events-auto */}
-          <RecordingFeedbackPopup
-            statusText={analysisStatusText}
-          />
-        </div>
-      )}
+          {/* Recording Feedback Popup Container & Component */}
+          {isRecordingFeedbackVisible && (
+            // Position this container absolutely, below header (top-10), towards the right (right-4).
+            // Use flex to align its content (the popup itself).
+            <div className="absolute top-10 right-4 pt-2 flex flex-col items-end z-40 pointer-events-none">
+              {/* pointer-events-none on container, popup itself will have pointer-events-auto */}
+              <RecordingFeedbackPopup
+                statusText={analysisStatusText}
+              />
+            </div>
+          )}
 
-      {/* Permission Dialog */}
-      <PermissionDialog
-        isOpen={showPermissionDialog}
-        onClose={handlePermissionDialogClose}
-        onPermissionGranted={handlePermissionGranted}
-        requiredPermissions={['screen', 'microphone']}
-        showOnboarding={isFirstLaunch}
-      />
-
-      {/* Permission Status - Show in settings or when there are issues */}
-      {(isSettingsOpen || (hasCheckedPermissions && !showPermissionDialog)) && (
-        <div className="absolute top-12 right-4 z-30">
-          <div className="bg-black bg-opacity-75 backdrop-blur-lg rounded-lg p-3 shadow-xl">
-            <PermissionStatus
-              onOpenPermissionDialog={handleOpenPermissionDialog}
-              className="w-48"
-              showLabels={true}
-              compact={false}
-            />
-          </div>
+          {/* Permission Status - Show in settings or when there are permission issues */}
+          {(isSettingsOpen || (hasCheckedPermissions && hasPermissionIssues && !showPermissionDialog)) && (
+            <div className="absolute top-12 right-4 z-30">
+              <div className="bg-black bg-opacity-75 backdrop-blur-lg rounded-lg p-3 shadow-xl">
+                <PermissionStatus
+                  onOpenPermissionDialog={handleOpenPermissionDialog}
+                  className="w-48"
+                  showLabels={true}
+                  compact={false}
+                />
+              </div>
+            </div>
+          )}
         </div>
-      )}
-    </div>
+      </MainWindowOnly>
+
+      {/* Permission Dialog - Only render in modal window */}
+      <ModalWindowOnly modalId="permission-dialog">
+        <PermissionModalDialog
+          isOpen={true} // Always open when in modal window
+          onClose={handlePermissionDialogClose}
+          onPermissionGranted={handlePermissionGranted}
+          requiredPermissions={['screen', 'microphone']}
+          showOnboarding={isFirstLaunch}
+        />
+      </ModalWindowOnly>
+
+      {/* Voice recording is now handled inline in the Header component */}
+    </>
   );
 };
 

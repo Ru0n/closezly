@@ -8,11 +8,13 @@ import { useState } from "react"
 export interface SocialLoginSectionProps {
   mode?: 'login' | 'signup'
   onError?: (error: string) => void
+  isFromDesktop?: boolean
 }
 
 const SocialLoginSection: React.FC<SocialLoginSectionProps> = ({
   mode = 'login',
-  onError
+  onError,
+  isFromDesktop = false
 }) => {
   const [loadingProvider, setLoadingProvider] = useState<string | null>(null)
 
@@ -21,10 +23,15 @@ const SocialLoginSection: React.FC<SocialLoginSectionProps> = ({
       setLoadingProvider(provider)
       const supabase = createClient()
 
+      // Build redirect URL with source parameter if from desktop
+      const redirectUrl = isFromDesktop
+        ? `${window.location.origin}/auth/callback?source=desktop`
+        : `${window.location.origin}/auth/callback`
+
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
+          redirectTo: redirectUrl,
         },
       })
 
